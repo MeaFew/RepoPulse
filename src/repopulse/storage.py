@@ -139,6 +139,29 @@ class Warehouse:
 
     def initialize(self) -> None:
         self.connection.execute(SCHEMA_SQL)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after the initial schema to pre-existing tables.
+
+        ``CREATE TABLE IF NOT EXISTS`` is a no-op on tables that already exist,
+        so columns added in a later version never appear in an older database
+        file. This checks ``information_schema`` and ``ALTER TABLE ... ADD``
+        each missing column idempotently, so old snapshots keep working with
+        new code (and new files are unaffected, since the columns already exist).
+        """
+        existing = {
+            row[0]
+            for row in self.connection.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'pipeline_runs'"
+            ).fetchall()
+        }
+        for column in ("issue_comments_loaded", "pr_reviews_loaded"):
+            if column not in existing:
+                self.connection.execute(
+                    f"ALTER TABLE pipeline_runs ADD COLUMN {column} INTEGER DEFAULT 0"
+                )
 
     def upsert_repository(self, item: dict[str, Any], fetched_at: datetime) -> None:
         license_info = item.get("license") or {}
