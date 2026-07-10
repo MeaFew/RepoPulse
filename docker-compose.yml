@@ -1,0 +1,15 @@
+services:
+  repopulse:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      REPOPULSE_DB_PATH: /app/data/repopulse.duckdb
+      REPOPULSE_REPOSITORY: ${REPOPULSE_REPOSITORY:-duckdb/duckdb}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    volumes:
+      - repopulse-data:/app/data
+
+volumes:
+  repopulse-data:
+

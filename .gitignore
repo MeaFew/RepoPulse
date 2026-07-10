@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.env
+.streamlit/secrets.toml
+*.duckdb
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+*.log
+data/processed/*
+!data/processed/.gitkeep

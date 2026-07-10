@@ -1,0 +1,36 @@
+name: Refresh analytics snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: Repository in owner/name format
+        required: true
+        default: duckdb/duckdb
+  schedule:
+    - cron: "17 2 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install .
+      - name: Refresh repository data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_REPOSITORY: ${{ inputs.repository || 'duckdb/duckdb' }}
+        run: repopulse --db repopulse.duckdb collect "$TARGET_REPOSITORY" --max-pages 10
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repopulse-snapshot
+          path: repopulse.duckdb
+          retention-days: 14
+
