@@ -80,6 +80,27 @@ CREATE TABLE IF NOT EXISTS releases (
     PRIMARY KEY (repo_full_name, release_id)
 );
 
+CREATE TABLE IF NOT EXISTS issue_comments (
+    repo_full_name VARCHAR NOT NULL,
+    issue_number INTEGER NOT NULL,
+    comment_id BIGINT NOT NULL,
+    author VARCHAR,
+    body VARCHAR,
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (repo_full_name, comment_id)
+);
+
+CREATE TABLE IF NOT EXISTS pr_reviews (
+    repo_full_name VARCHAR NOT NULL,
+    pr_number INTEGER NOT NULL,
+    review_id BIGINT NOT NULL,
+    author VARCHAR,
+    state VARCHAR,
+    body VARCHAR,
+    submitted_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (repo_full_name, review_id)
+);
+
 CREATE TABLE IF NOT EXISTS pipeline_runs (
     run_id VARCHAR PRIMARY KEY,
     repo_full_name VARCHAR NOT NULL,
@@ -90,6 +111,8 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     pull_requests_loaded INTEGER DEFAULT 0,
     commits_loaded INTEGER DEFAULT 0,
     releases_loaded INTEGER DEFAULT 0,
+    issue_comments_loaded INTEGER DEFAULT 0,
+    pr_reviews_loaded INTEGER DEFAULT 0,
     error_message VARCHAR
 );
 """
@@ -116,6 +139,29 @@ class Warehouse:
 
     def initialize(self) -> None:
         self.connection.execute(SCHEMA_SQL)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after the initial schema to pre-existing tables.
+
+        ``CREATE TABLE IF NOT EXISTS`` is a no-op on tables that already exist,
+        so columns added in a later version never appear in an older database
+        file. This checks ``information_schema`` and ``ALTER TABLE ... ADD``
+        each missing column idempotently, so old snapshots keep working with
+        new code (and new files are unaffected, since the columns already exist).
+        """
+        existing = {
+            row[0]
+            for row in self.connection.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'pipeline_runs'"
+            ).fetchall()
+        }
+        for column in ("issue_comments_loaded", "pr_reviews_loaded"):
+            if column not in existing:
+                self.connection.execute(
+                    f"ALTER TABLE pipeline_runs ADD COLUMN {column} INTEGER DEFAULT 0"
+                )
 
     def upsert_repository(self, item: dict[str, Any], fetched_at: datetime) -> None:
         license_info = item.get("license") or {}
@@ -237,11 +283,52 @@ class Warehouse:
             )
         return len(rows)
 
+    def upsert_issue_comments(self, repository: str, items: Iterable[dict[str, Any]]) -> int:
+        rows = [
+            [
+                repository,
+                item["issue_number"],
+                item["id"],
+                _login(item.get("user")),
+                item.get("body"),
+                item["created_at"],
+            ]
+            for item in items
+            if item.get("created_at") is not None
+        ]
+        if rows:
+            self.connection.executemany(
+                "INSERT OR REPLACE INTO issue_comments VALUES (?, ?, ?, ?, ?, ?)", rows
+            )
+        return len(rows)
+
+    def upsert_pr_reviews(self, repository: str, items: Iterable[dict[str, Any]]) -> int:
+        rows = [
+            [
+                repository,
+                item["pr_number"],
+                item["id"],
+                _login(item.get("user")),
+                item.get("state"),
+                item.get("body"),
+                item["submitted_at"],
+            ]
+            for item in items
+            if item.get("submitted_at") is not None
+        ]
+        if rows:
+            self.connection.executemany(
+                "INSERT OR REPLACE INTO pr_reviews VALUES (?, ?, ?, ?, ?, ?, ?)", rows
+            )
+        return len(rows)
+
     def latest_timestamp(self, repository: str, entity: str) -> datetime | None:
         mapping = {
             "issues": ("issues", "updated_at"),
             "pull_requests": ("pull_requests", "updated_at"),
             "commits": ("commits", "committed_at"),
+            "issue_comments": ("issue_comments", "created_at"),
+            "pr_reviews": ("pr_reviews", "submitted_at"),
         }
         if entity not in mapping:
             raise ValueError(f"不支持的实体类型: {entity}")
@@ -274,7 +361,8 @@ class Warehouse:
             """
             UPDATE pipeline_runs
             SET finished_at = ?, status = ?, issues_loaded = ?, pull_requests_loaded = ?,
-                commits_loaded = ?, releases_loaded = ?, error_message = ?
+                commits_loaded = ?, releases_loaded = ?,
+                issue_comments_loaded = ?, pr_reviews_loaded = ?, error_message = ?
             WHERE run_id = ?
             """,
             [
@@ -284,6 +372,8 @@ class Warehouse:
                 counts.get("pull_requests", 0),
                 counts.get("commits", 0),
                 counts.get("releases", 0),
+                counts.get("issue_comments", 0),
+                counts.get("pr_reviews", 0),
                 error_message,
                 run_id,
             ],

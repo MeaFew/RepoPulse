@@ -5,6 +5,7 @@ __pycache__/
 .env
 .streamlit/secrets.toml
 *.duckdb
+!data/snapshot/repopulse.duckdb
 .coverage
 htmlcov/
 dist/
