@@ -122,6 +122,40 @@ class GitHubClient:
     def get_releases(self, repository: str) -> list[dict[str, Any]]:
         return list(self._paginate(f"/repos/{repository}/releases"))
 
+    def get_issue_comments(
+        self, repository: str, *, since: datetime | None = None
+    ) -> list[dict[str, Any]]:
+        """Repository-level issue comments (one endpoint, cheap to paginate).
+
+        GitHub does not return the issue number on each comment, so we synthesize
+        it from ``issue_url`` to make the events table joinable to ``issues``.
+        """
+        params: dict[str, Any] = {"sort": "created", "direction": "desc"}
+        if since:
+            params["since"] = _github_timestamp(since)
+        comments: list[dict[str, Any]] = []
+        for item in self._paginate(f"/repos/{repository}/issues/comments", params=params):
+            issue_url = item.get("issue_url") or ""
+            number = _issue_number_from_url(issue_url)
+            if number is None:
+                continue
+            comments.append({**item, "issue_number": number})
+        return comments
+
+    def get_pr_reviews(
+        self, repository: str, pr_number: int
+    ) -> list[dict[str, Any]]:
+        """Reviews for a single PR. There is no repository-level reviews endpoint,
+        so callers must loop PRs themselves; that loop is intentionally kept in
+        the pipeline so it can apply a window-bounded strategy.
+        """
+        reviews: list[dict[str, Any]] = []
+        for item in self._paginate(
+            f"/repos/{repository}/pulls/{pr_number}/reviews"
+        ):
+            reviews.append({**item, "pr_number": pr_number})
+        return reviews
+
     def rate_limit(self) -> dict[str, Any]:
         return self._get("/rate_limit").json()
 
@@ -144,3 +178,15 @@ def _parse_timestamp(value: str | None) -> datetime | None:
     except ValueError:
         parsed = parsedate_to_datetime(value)
     return _ensure_utc(parsed)
+
+
+def _issue_number_from_url(url: str) -> int | None:
+    """Extract the integer issue number from a GitHub issue_url like
+    ``https://api.github.com/repos/owner/repo/issues/42``."""
+    if not url:
+        return None
+    tail = url.rstrip("/").rsplit("/", 1)[-1]
+    try:
+        return int(tail)
+    except ValueError:
+        return None

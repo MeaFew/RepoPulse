@@ -1,17 +1,26 @@
 name: Refresh analytics snapshot
 
+# Collects a small panel of real open-source repositories daily and commits the
+# merged DuckDB snapshot back to this branch so the Streamlit Cloud demo can
+# read real, current data. The snapshot path is allow-listed in .gitignore.
+#
+# API cost note: a GITHUB_TOKEN with default permissions is enough for public
+# repos; a PAT raises the rate ceiling. PR reviews are only fetched for PRs
+# created in the trailing window (see pipeline.PR_REVIEW_WINDOW_DAYS), so each
+# run's cost is bounded and does not scale with total repo history.
+
 on:
   workflow_dispatch:
     inputs:
-      repository:
-        description: Repository in owner/name format
-        required: true
-        default: duckdb/duckdb
+      repositories:
+        description: Comma-separated owner/name list (overrides default panel)
+        required: false
+        default: ""
   schedule:
-    - cron: "17 2 * * 1"
+    - cron: "17 2 * * *"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   refresh:
@@ -23,14 +32,33 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install .
-      - name: Refresh repository data
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_REPOSITORY: ${{ inputs.repository || 'duckdb/duckdb' }}
-        run: repopulse --db repopulse.duckdb collect "$TARGET_REPOSITORY" --max-pages 10
-      - uses: actions/upload-artifact@v4
-        with:
-          name: repopulse-snapshot
-          path: repopulse.duckdb
-          retention-days: 14
 
+      - name: Refresh panel repositories into one snapshot
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPOPULSE_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          REPOSITORIES: ${{ inputs.repositories }}
+        run: |
+          mkdir -p data/snapshot
+          DB="data/snapshot/repopulse.duckdb"
+          # Default demo panel: a few comparable data-engineering projects.
+          if [ -z "$REPOSITORIES" ]; then
+            REPOS="duckdb/duckdb,pola-rs/polars,sqlglot/sqlglot"
+          else
+            REPOS="$REPOSITORIES"
+          fi
+          IFS=',' read -ra LIST <<< "$REPOS"
+          for repo in "${LIST[@]}"; do
+            echo "Collecting $repo ..."
+            repopulse --db "$DB" collect "$repo" --max-pages 8 || echo "  $repo failed, continuing"
+          done
+      - name: Commit refreshed snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/snapshot/repopulse.duckdb || true
+          if git diff --cached --quiet; then
+            echo "No changes to snapshot."
+          else
+            git commit -m "chore: refresh analytics snapshot [skip ci]"
+            git push
+          fi

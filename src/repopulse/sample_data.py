@@ -112,6 +112,52 @@ def load_demo_data(db_path: str | Path) -> str:
             }
         )
 
+    # Issue comments: closed issues usually get a non-author reply; ~15% of all
+    # issues have no reply at all so the no-response ratio is non-trivial.
+    maintainers = authors[1:]
+    issue_comments = []
+    comment_id = 100000
+    for issue in issues:
+        author = issue["user"]["login"]
+        created = _parse_iso(issue["created_at"])
+        if rng.random() < 0.15:
+            continue  # no response at all
+        responder = rng.choice([m for m in maintainers if m != author] or maintainers)
+        delay_hours = rng.randint(1, 240)
+        issue_comments.append(
+            {
+                "id": comment_id,
+                "issue_number": issue["number"],
+                "user": {"login": responder},
+                "body": "Demo comment",
+                "created_at": _iso(created + timedelta(hours=delay_hours)),
+            }
+        )
+        comment_id += 1
+
+    # PR reviews: most non-draft, non-still-open PRs get a non-author review.
+    pr_reviews = []
+    review_id = 200000
+    for pr in pull_requests:
+        author = pr["user"]["login"]
+        created = _parse_iso(pr["created_at"])
+        if pr["draft"] or rng.random() < 0.2:
+            continue
+        reviewer = rng.choice([m for m in maintainers if m != author] or maintainers)
+        delay_hours = rng.randint(1, 120)
+        state = rng.choice(["approved", "commented", "changes_requested"])
+        pr_reviews.append(
+            {
+                "id": review_id,
+                "pr_number": pr["number"],
+                "user": {"login": reviewer},
+                "state": state,
+                "body": "Demo review",
+                "submitted_at": _iso(created + timedelta(hours=delay_hours)),
+            }
+        )
+        review_id += 1
+
     with Warehouse(db_path) as warehouse:
         warehouse.initialize()
         warehouse.upsert_repository(repository, now)
@@ -119,6 +165,8 @@ def load_demo_data(db_path: str | Path) -> str:
         pr_count = warehouse.upsert_pull_requests(DEMO_REPOSITORY, pull_requests)
         commit_count = warehouse.upsert_commits(DEMO_REPOSITORY, commits)
         release_count = warehouse.upsert_releases(DEMO_REPOSITORY, releases)
+        comment_count = warehouse.upsert_issue_comments(DEMO_REPOSITORY, issue_comments)
+        review_count = warehouse.upsert_pr_reviews(DEMO_REPOSITORY, pr_reviews)
         run_id = f"demo-{int(now.timestamp())}"
         warehouse.start_run(run_id, DEMO_REPOSITORY, started)
         warehouse.finish_run(
@@ -130,9 +178,15 @@ def load_demo_data(db_path: str | Path) -> str:
                 "pull_requests": pr_count,
                 "commits": commit_count,
                 "releases": release_count,
+                "issue_comments": comment_count,
+                "pr_reviews": review_count,
             },
         )
     return DEMO_REPOSITORY
+
+
+def _parse_iso(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def _iso(value: datetime) -> str:
