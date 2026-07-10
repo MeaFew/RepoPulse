@@ -1,2 +1,9 @@
+# Pinned for reproducible Streamlit Cloud installs. The cloud runtime does not
+# always resolve optional/editable installs cleanly, so dependencies are listed
+# explicitly here and the package itself is installed last with -e .
+duckdb>=1.2,<2
+httpx>=0.27,<1
+pandas>=2.2,<3
+plotly>=5.24,<7
+streamlit>=1.41,<2
 -e .
-
