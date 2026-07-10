@@ -1,5 +1,7 @@
 # RepoPulse
 
+**在线 Demo：** [repopulse-c7wefwy6hywnphnavs8rme.streamlit.app](https://repopulse-c7wefwy6hywnphnavs8rme.streamlit.app/)
+
 > 输入任意 GitHub 仓库，自动分析项目活跃度、维护效率、贡献者留存和社区风险。
 
 RepoPulse 是一个面向开源维护者和数据分析学习者的端到端数据产品。它通过 GitHub REST API 增量采集 Issue、Pull Request、Commit、Release 数据，将原始记录写入 DuckDB，并用统一 SQL 指标驱动 Streamlit 交互式看板。
