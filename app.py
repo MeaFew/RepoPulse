@@ -1,19 +1,49 @@
 from __future__ import annotations
 
+import sys
+import traceback
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import plotly.express as px
 import streamlit as st
 
-from repopulse.config import Settings
-from repopulse.github_client import GitHubAPIError
-from repopulse.metrics import Analytics, RiskFlag, Window
-from repopulse.pipeline import collect_repository
-from repopulse.sample_data import load_demo_data
-from repopulse.storage import Warehouse
-
 st.set_page_config(page_title="RepoPulse", page_icon="📊", layout="wide")
+
+# --- diagnostics: surface the real import error that Streamlit redacts -------
+# Pre-check every third-party + local module so we can print the exact failure
+# point to the page AND stderr, instead of a redacted "ImportError".
+import importlib  # noqa: E402
+
+_DIAG_MODULES = ["duckdb", "pandas", "httpx", "plotly", "streamlit", "repopulse"]
+_diag_failures: list[str] = []
+for _mod in _DIAG_MODULES:
+    try:
+        importlib.import_module(_mod)
+    except Exception as _exc:  # noqa: BLE001
+        _diag_failures.append(f"{_mod}: {type(_exc).__name__}: {_exc}")
+
+if _diag_failures:
+    msg = "RepoPulse 依赖检测失败: " + " | ".join(_diag_failures)
+    print(msg, file=sys.stderr)
+    st.error(msg)
+    st.stop()
+
+try:
+    from repopulse.config import Settings
+    from repopulse.github_client import GitHubAPIError
+    from repopulse.metrics import Analytics, RiskFlag, Window
+    from repopulse.pipeline import collect_repository
+    from repopulse.sample_data import load_demo_data
+    from repopulse.storage import Warehouse
+except Exception:
+    tb = traceback.format_exc()
+    print(tb, file=sys.stderr)
+    st.error("导入 repopulse 子模块失败,完整 traceback 见下方:")
+    st.code(tb, language="python")
+    st.write(f"- Python: {sys.version}")
+    st.write(f"- sys.path: {sys.path}")
+    st.stop()
 
 
 def ensure_database(db_path: Path) -> None:
