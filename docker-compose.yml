@@ -6,10 +6,11 @@ services:
     environment:
       REPOPULSE_DB_PATH: /app/data/repopulse.duckdb
       REPOPULSE_REPOSITORY: ${REPOPULSE_REPOSITORY:-duckdb/duckdb}
+      REPOPULSE_MAX_PAGES: ${REPOPULSE_MAX_PAGES:-10}
+      REPOPULSE_DEMO_MODE: ${REPOPULSE_DEMO_MODE:-false}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     volumes:
       - repopulse-data:/app/data
 
 volumes:
   repopulse-data:
-

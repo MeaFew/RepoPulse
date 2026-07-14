@@ -13,6 +13,7 @@ class Settings:
 
     repository: str = "duckdb/duckdb"
     db_path: Path = PROJECT_ROOT / "data" / "processed" / "repopulse.duckdb"
+    snapshot_path: Path = PROJECT_ROOT / "data" / "snapshot" / "repopulse.duckdb"
     github_token: str | None = None
     max_pages: int = 10
     demo_mode: bool = False
@@ -21,9 +22,18 @@ class Settings:
     def from_env(cls) -> Settings:
         raw_db_path = Path(os.getenv("REPOPULSE_DB_PATH", "data/processed/repopulse.duckdb"))
         db_path = raw_db_path if raw_db_path.is_absolute() else PROJECT_ROOT / raw_db_path
+        raw_snapshot_path = Path(
+            os.getenv("REPOPULSE_SNAPSHOT_PATH", "data/snapshot/repopulse.duckdb")
+        )
+        snapshot_path = (
+            raw_snapshot_path
+            if raw_snapshot_path.is_absolute()
+            else PROJECT_ROOT / raw_snapshot_path
+        )
         return cls(
             repository=os.getenv("REPOPULSE_REPOSITORY", "duckdb/duckdb"),
             db_path=db_path,
+            snapshot_path=snapshot_path,
             github_token=os.getenv("GITHUB_TOKEN") or None,
             max_pages=max(1, int(os.getenv("REPOPULSE_MAX_PAGES", "10"))),
             demo_mode=os.getenv("REPOPULSE_DEMO_MODE", "false").strip().lower()

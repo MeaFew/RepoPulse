@@ -160,6 +160,7 @@ def load_demo_data(db_path: str | Path) -> str:
 
     with Warehouse(db_path) as warehouse:
         warehouse.initialize()
+        is_incremental = warehouse.repository_exists(DEMO_REPOSITORY)
         warehouse.upsert_repository(repository, now)
         issue_count = warehouse.upsert_issues(DEMO_REPOSITORY, issues)
         pr_count = warehouse.upsert_pull_requests(DEMO_REPOSITORY, pull_requests)
@@ -168,19 +169,50 @@ def load_demo_data(db_path: str | Path) -> str:
         comment_count = warehouse.upsert_issue_comments(DEMO_REPOSITORY, issue_comments)
         review_count = warehouse.upsert_pr_reviews(DEMO_REPOSITORY, pr_reviews)
         run_id = f"demo-{int(now.timestamp())}"
-        warehouse.start_run(run_id, DEMO_REPOSITORY, started)
+        largest_entity = max(
+            issue_count,
+            pr_count,
+            commit_count,
+            release_count,
+            comment_count,
+            review_count,
+        )
+        max_demo_pages = max(1, (largest_entity + 99) // 100)
+        warehouse.start_run(
+            run_id,
+            DEMO_REPOSITORY,
+            started,
+            max_pages=max_demo_pages,
+            is_incremental=is_incremental,
+        )
+        entity_counts = {
+            "issues": issue_count,
+            "pull_requests": pr_count,
+            "commits": commit_count,
+            "releases": release_count,
+            "issue_comments": comment_count,
+            "pr_reviews": review_count,
+        }
+        for entity_type, entity_count in entity_counts.items():
+            pages = max(1, (entity_count + 99) // 100)
+            warehouse.update_coverage(
+                DEMO_REPOSITORY,
+                entity_type,
+                run_id=run_id,
+                refreshed_at=now,
+                pages_fetched=pages,
+                max_pages=max_demo_pages,
+                truncated=False,
+                coverage_scope=(
+                    "trailing_180_days" if entity_type == "pr_reviews" else "full_history"
+                ),
+                replace_history=entity_type == "releases",
+            )
         warehouse.finish_run(
             run_id,
             finished_at=now,
             status="success",
-            counts={
-                "issues": issue_count,
-                "pull_requests": pr_count,
-                "commits": commit_count,
-                "releases": release_count,
-                "issue_comments": comment_count,
-                "pr_reviews": review_count,
-            },
+            counts=entity_counts,
         )
     return DEMO_REPOSITORY
 

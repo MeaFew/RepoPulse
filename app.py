@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import importlib
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import plotly.express as px
 import streamlit as st
 
+from repopulse import __version__
 from repopulse import metrics as metrics_module
 from repopulse.config import Settings
+from repopulse.demo_runtime import fallback_database_path, select_demo_database
 from repopulse.github_client import GitHubAPIError
 from repopulse.pipeline import collect_repository
 from repopulse.sample_data import load_demo_data
@@ -54,6 +57,8 @@ def show_risk(flag: RiskFlag) -> None:
         st.error(f"**{flag.title}**  {flag.detail}")
     elif flag.level == "medium":
         st.warning(f"**{flag.title}**  {flag.detail}")
+    elif flag.level == "info":
+        st.info(f"**{flag.title}**  {flag.detail}")
     else:
         st.success(f"**{flag.title}**  {flag.detail}")
 
@@ -91,23 +96,31 @@ settings = Settings.from_env()
 st.title("RepoPulse")
 st.caption("GitHub 开源项目健康度、维护效率与贡献者增长分析")
 
-# Prefer a committed real-data snapshot if the active database is empty. This is
-# what lets the Streamlit Cloud demo show fresh data from the daily refresh job.
-snapshot_path = Path("data/snapshot/repopulse.duckdb")
+data_source = "database"
+snapshot_warning: str | None = None
 
-repositories = available_repositories(settings.db_path)
-if not repositories and snapshot_path.exists():
-    settings = settings.__class__(
-        repository=settings.repository,
-        db_path=snapshot_path,
-        github_token=settings.github_token,
-        max_pages=settings.max_pages,
-        demo_mode=settings.demo_mode,
-    )
-    repositories = available_repositories(settings.db_path)
+if settings.demo_mode:
+    selection = select_demo_database(settings.db_path, settings.snapshot_path)
+    settings = replace(settings, db_path=selection.db_path)
+    if selection.uses_snapshot:
+        try:
+            repositories = available_repositories(settings.db_path)
+            if not repositories:
+                raise ValueError("真实快照中没有可分析的仓库")
+            data_source = "snapshot"
+        except Exception as exc:
+            snapshot_warning = str(exc)
+            settings = replace(settings, db_path=fallback_database_path(settings.db_path))
+            repositories = available_repositories(settings.db_path)
+    else:
+        repositories = available_repositories(settings.db_path)
 
-if settings.demo_mode and not repositories:
-    load_demo_data(settings.db_path)
+    if data_source != "snapshot":
+        if not repositories:
+            load_demo_data(settings.db_path)
+            repositories = available_repositories(settings.db_path)
+        data_source = "sample"
+else:
     repositories = available_repositories(settings.db_path)
 
 # ---------------------------------------------------------------- sidebar --
@@ -127,8 +140,14 @@ with st.sidebar:
 
     if settings.demo_mode:
         st.header("在线演示")
-        st.success("当前为安全只读模式")
-        st.caption("使用固定种子生成的匿名示例数据，不消耗 GitHub API 额度。")
+        if data_source == "snapshot":
+            st.success("当前展示每日更新的真实仓库快照")
+            st.caption("数据由 GitHub Actions 预先采集；访客只读，不消耗 API 额度。")
+        else:
+            st.warning("真实快照不可用，当前使用离线模拟数据")
+            st.caption("模拟数据只作为故障兜底，不对应真实个人或项目。")
+            if snapshot_warning:
+                st.caption(f"快照错误：{snapshot_warning}")
     else:
         st.header("数据源")
         repository_input = st.text_input("GitHub 仓库", value=settings.repository)
@@ -149,6 +168,12 @@ with st.sidebar:
                         max_pages=max_pages,
                     )
                 st.success(f"更新完成，本次处理 {result.total_loaded:,} 条记录。")
+                if result.truncated_entities:
+                    names = "、".join(result.truncated_entities)
+                    st.warning(
+                        f"以下数据达到分页上限，历史覆盖可能不完整：{names}。"
+                        "可以提高最大页数后重新采集。"
+                    )
                 st.rerun()
             except (GitHubAPIError, ValueError) as exc:
                 st.error(str(exc))
@@ -171,7 +196,10 @@ mode = st.tabs(["单仓库分析", "多仓库对比"])
 
 # ------------------------------------------------------- single-repo tab --
 with mode[0]:
-    selected = st.selectbox("分析仓库", repositories, index=0)
+    default_index = (
+        repositories.index(settings.repository) if settings.repository in repositories else 0
+    )
+    selected = st.selectbox("分析仓库", repositories, index=default_index)
 
     with Analytics(settings.db_path) as analytics:
         overview = analytics.overview(selected)
@@ -181,10 +209,80 @@ with mode[0]:
         issue_resp = analytics.issue_response_kpis(selected, window)
         pr_resp = analytics.pr_response_kpis(selected, window)
         backlog = analytics.backlog_kpis(selected, window)
+        coverage = analytics.data_coverage(selected)
+        quality_flags = analytics.data_quality_flags(selected)
+        runs = analytics.recent_runs(selected)
 
         st.subheader(selected)
         if overview.get("description"):
             st.write(overview["description"])
+
+        with st.expander("🛡️ 数据可信度", expanded=True):
+            if coverage.empty:
+                st.caption("旧版快照没有覆盖元数据；下次重新采集后会自动补齐。")
+            else:
+                complete_count = int(coverage["history_complete"].sum())
+                refreshed_at = coverage["refreshed_at"].max()
+                latest_status = runs.iloc[0]["status"] if not runs.empty else "—"
+                trust_cols = st.columns(4)
+                trust_cols[0].metric("完整实体", f"{complete_count}/{len(coverage)}")
+                trust_cols[1].metric("已存明细", metric_value(int(coverage["record_count"].sum())))
+                trust_cols[2].metric("最近采集", str(latest_status))
+                trust_cols[3].metric(
+                    "刷新时间",
+                    refreshed_at.strftime("%Y-%m-%d %H:%M UTC")
+                    if refreshed_at is not None
+                    else "—",
+                )
+
+                entity_labels = {
+                    "issues": "Issue",
+                    "pull_requests": "Pull Request",
+                    "commits": "Commit",
+                    "releases": "Release",
+                    "issue_comments": "Issue 评论",
+                    "pr_reviews": "PR Review",
+                }
+                coverage_view = coverage.copy()
+                coverage_view["entity_type"] = coverage_view["entity_type"].map(
+                    lambda value: entity_labels.get(value, value)
+                )
+                coverage_view["history_complete"] = coverage_view["history_complete"].map(
+                    {True: "完整", False: "可能缺失"}
+                )
+                coverage_view["coverage_scope"] = coverage_view["coverage_scope"].map(
+                    lambda value: "近 180 天 PR" if value == "trailing_180_days" else "完整历史"
+                )
+                coverage_view = coverage_view.rename(
+                    columns={
+                        "entity_type": "数据类型",
+                        "record_count": "记录数",
+                        "first_observed_at": "最早记录",
+                        "last_observed_at": "最新记录",
+                        "pages_fetched": "本次页数",
+                        "max_pages": "页数上限",
+                        "history_complete": "历史覆盖",
+                        "coverage_scope": "采集范围",
+                    }
+                )
+                st.dataframe(
+                    coverage_view[
+                        [
+                            "数据类型",
+                            "记录数",
+                            "最早记录",
+                            "最新记录",
+                            "本次页数",
+                            "页数上限",
+                            "历史覆盖",
+                            "采集范围",
+                        ]
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            for flag in quality_flags:
+                show_risk(flag)
 
         cols = st.columns(3)
         cols[0].metric("Stars", metric_value(overview.get("stars")))
@@ -312,8 +410,32 @@ with mode[0]:
             for flag in analytics.risk_flags(selected, window):
                 show_risk(flag)
 
+            st.markdown("#### 维护者待办")
+            tasks = analytics.maintainer_tasks(selected, window)
+            if tasks.empty:
+                st.success("当前没有超过规则阈值的开放 Issue 或 PR。")
+            else:
+                task_view = tasks.rename(
+                    columns={
+                        "priority": "优先级",
+                        "task_type": "类型",
+                        "item_number": "编号",
+                        "title": "标题",
+                        "age_days": "已等待天数",
+                        "reason": "建议处理原因",
+                        "url": "链接",
+                    }
+                )
+                st.dataframe(
+                    task_view,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "链接": st.column_config.LinkColumn("链接", display_text="打开")
+                    },
+                )
+
             st.markdown("#### 最近采集记录")
-            runs = analytics.recent_runs(selected)
             st.dataframe(runs, use_container_width=True, hide_index=True)
 
     # --- report export (outside the analytics block: opens its own reader) ---
@@ -404,4 +526,4 @@ with mode[1]:
             mime="text/csv",
         )
 
-st.caption("RepoPulse 0.2 · 指标用于项目运营诊断，不代表因果结论。")
+st.caption(f"RepoPulse {__version__} · 指标用于项目运营诊断，不代表因果结论。")
