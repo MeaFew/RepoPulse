@@ -42,7 +42,7 @@ jobs:
           DB="data/snapshot/repopulse.duckdb"
           # Default demo panel: a few comparable data-engineering projects.
           if [ -z "$REPOSITORIES" ]; then
-            REPOS="duckdb/duckdb,pola-rs/polars,sqlglot/sqlglot"
+            REPOS="duckdb/duckdb,pola-rs/polars,tobymao/sqlglot"
           else
             REPOS="$REPOSITORIES"
           fi

@@ -21,6 +21,17 @@ def test_issue_endpoint_filters_pull_requests() -> None:
     assert [item["number"] for item in issues] == [1]
 
 
+def test_missing_pr_reviews_do_not_fail_repository_refresh() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/repos/owner/repo/pulls/42/reviews"
+        return httpx.Response(404, json={"message": "Not Found"})
+
+    with GitHubClient(transport=httpx.MockTransport(handler)) as client:
+        reviews = client.get_pr_reviews("owner/repo", 42)
+
+    assert reviews == []
+
+
 def test_rate_limit_is_reported_without_busy_retry() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(403, headers={"x-ratelimit-reset": "123456"}, json={})

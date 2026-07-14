@@ -18,6 +18,10 @@ class GitHubRateLimitError(GitHubAPIError):
     """Raised when GitHub asks the client to wait before sending more requests."""
 
 
+class GitHubNotFoundError(GitHubAPIError):
+    """Raised when a GitHub resource disappears between related API requests."""
+
+
 @dataclass(frozen=True)
 class PaginationStats:
     pages_fetched: int = 0
@@ -87,6 +91,9 @@ class GitHubClient:
             retry_after = response.headers.get("retry-after")
             detail = f"retry-after={retry_after}" if retry_after else f"reset={reset}"
             raise GitHubRateLimitError(f"GitHub API 触发限流（{detail}）")
+        if response.status_code == 404:
+            message = response.text[:300]
+            raise GitHubNotFoundError(f"GitHub API 404: {message}")
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -212,11 +219,18 @@ class GitHubClient:
         the pipeline so it can apply a window-bounded strategy.
         """
         reviews: list[dict[str, Any]] = []
-        for item in self._paginate(
-            f"/repos/{repository}/pulls/{pr_number}/reviews",
-            coverage_key="pr_reviews",
-        ):
-            reviews.append({**item, "pr_number": pr_number})
+        try:
+            for item in self._paginate(
+                f"/repos/{repository}/pulls/{pr_number}/reviews",
+                coverage_key="pr_reviews",
+            ):
+                reviews.append({**item, "pr_number": pr_number})
+        except GitHubNotFoundError:
+            # A force-push, repository migration, or GitHub-side stale node can
+            # make one PR disappear after it was returned by the pulls list.
+            # Losing that PR's reviews should not discard the rest of a large
+            # repository refresh.
+            return []
         return reviews
 
     def rate_limit(self) -> dict[str, Any]:

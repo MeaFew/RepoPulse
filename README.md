@@ -12,7 +12,7 @@ RepoPulse 通过 GitHub REST API 增量采集 Issue、Pull Request、Commit、Re
 [在线体验](https://repopulse-c7wefwy6hywnphnavs8rme.streamlit.app/) · [快速开始](#快速开始) · [指标字典](docs/metric_dictionary.md) · [架构说明](docs/architecture.md) · [部署指南](docs/deployment.md) · [更新日志](CHANGELOG.md)
 
 > [!NOTE]
-> 在线 Demo 是安全只读模式，默认展示每日更新的 `duckdb/duckdb`、`pola-rs/polars` 和 `sqlglot/sqlglot` 真实仓库快照，不支持访客临时采集任意仓库。若快照不可用，页面会明确标注并回退到模拟数据。Streamlit Community Cloud 长时间无人访问时会休眠，首次打开可能需要手动唤醒并等待片刻。
+> 在线 Demo 是安全只读模式，默认展示每日更新的 `duckdb/duckdb`、`pola-rs/polars` 和 `tobymao/sqlglot` 真实仓库快照，不支持访客临时采集任意仓库。若快照不可用，页面会明确标注并回退到模拟数据。Streamlit Community Cloud 长时间无人访问时会休眠，首次打开可能需要手动唤醒并等待片刻。
 
 ![RepoPulse 单仓库分析看板](docs/assets/dashboard-overview.png)
 

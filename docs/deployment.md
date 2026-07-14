@@ -27,7 +27,7 @@ REPOPULSE_MAX_PAGES = "3"
 
 - `duckdb/duckdb`
 - `pola-rs/polars`
-- `sqlglot/sqlglot`
+- `tobymao/sqlglot`
 
 工作流将多个仓库采集到同一份 `data/snapshot/repopulse.duckdb`，然后把快照提交回当前分支。在线应用每次部署后会优先把这份真实快照镜像到 `/tmp/repopulse.duckdb`：前者随 Git 部署、保持可复现，后者可供 DuckDB 建立连接和执行结构迁移。即使云端休眠后保留了旧的 `/tmp` 模拟库，新部署的真实快照也会覆盖它。只有快照缺失、为空或损坏时，页面才会明确提示并回退到确定性示例数据。
 
