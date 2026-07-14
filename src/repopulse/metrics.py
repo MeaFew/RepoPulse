@@ -60,7 +60,13 @@ class Analytics:
     """Central metric definitions used by both the UI and tests."""
 
     def __init__(self, db_path: str | Path) -> None:
-        self.connection = duckdb.connect(str(db_path), read_only=True)
+        # DuckDB requires every connection to the same file in one process to
+        # use the same configuration. Streamlit can overlap a warehouse
+        # migration connection with a dashboard rerun, so a read-only analytics
+        # connection would fail even though every query below is SELECT-only.
+        # The online demo remains application-level read-only: it exposes no
+        # mutation controls and operates on a writable copy of the snapshot.
+        self.connection = duckdb.connect(str(db_path))
         self.connection.execute("SET TimeZone='UTC'")
 
     def close(self) -> None:

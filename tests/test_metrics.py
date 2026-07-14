@@ -1,5 +1,6 @@
 from repopulse.metrics import Analytics
 from repopulse.sample_data import DEMO_REPOSITORY, load_demo_data
+from repopulse.storage import Warehouse
 
 
 def test_demo_data_produces_consistent_core_metrics(tmp_path) -> None:
@@ -44,3 +45,13 @@ def test_risk_flags_have_explanations(tmp_path) -> None:
 
     assert flags
     assert all(flag.title and flag.detail for flag in flags)
+
+
+def test_analytics_uses_warehouse_compatible_connection_config(tmp_path) -> None:
+    db_path = tmp_path / "shared.duckdb"
+    load_demo_data(db_path)
+
+    with Warehouse(db_path) as warehouse:
+        warehouse.initialize()
+        with Analytics(db_path) as analytics:
+            assert analytics.repositories() == [DEMO_REPOSITORY]
