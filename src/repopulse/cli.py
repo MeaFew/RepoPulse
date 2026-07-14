@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 from repopulse.config import Settings
@@ -45,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
                     "repository": result.repository,
                     "loaded": result.counts,
                     "total_loaded": result.total_loaded,
+                    "truncated_entities": result.truncated_entities,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -64,6 +66,10 @@ def main(argv: list[str] | None = None) -> int:
                 "issues": analytics.issue_kpis(args.repository),
                 "pull_requests": analytics.pr_kpis(args.repository),
                 "contributors": analytics.contributor_kpis(args.repository),
+                "coverage": analytics.data_coverage(args.repository).to_dict(orient="records"),
+                "data_quality": [
+                    asdict(flag) for flag in analytics.data_quality_flags(args.repository)
+                ],
             }
         print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
         return 0

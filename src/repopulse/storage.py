@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -113,9 +113,43 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     releases_loaded INTEGER DEFAULT 0,
     issue_comments_loaded INTEGER DEFAULT 0,
     pr_reviews_loaded INTEGER DEFAULT 0,
+    max_pages INTEGER DEFAULT 0,
+    is_incremental BOOLEAN DEFAULT FALSE,
     error_message VARCHAR
 );
+
+CREATE TABLE IF NOT EXISTS collection_coverage (
+    repo_full_name VARCHAR NOT NULL,
+    entity_type VARCHAR NOT NULL,
+    first_observed_at TIMESTAMPTZ,
+    last_observed_at TIMESTAMPTZ,
+    record_count BIGINT NOT NULL,
+    pages_fetched INTEGER NOT NULL,
+    max_pages INTEGER NOT NULL,
+    last_run_truncated BOOLEAN NOT NULL,
+    history_complete BOOLEAN NOT NULL,
+    coverage_scope VARCHAR NOT NULL,
+    last_run_id VARCHAR NOT NULL,
+    refreshed_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (repo_full_name, entity_type)
+);
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL
+);
 """
+
+CURRENT_SCHEMA_VERSION = 2
+
+_COVERAGE_SOURCES = {
+    "issues": ("issues", "created_at"),
+    "pull_requests": ("pull_requests", "created_at"),
+    "commits": ("commits", "committed_at"),
+    "releases": ("releases", "coalesce(published_at, created_at)"),
+    "issue_comments": ("issue_comments", "created_at"),
+    "pr_reviews": ("pr_reviews", "submitted_at"),
+}
 
 
 class Warehouse:
@@ -142,14 +176,33 @@ class Warehouse:
         self._migrate()
 
     def _migrate(self) -> None:
-        """Add columns introduced after the initial schema to pre-existing tables.
+        """Apply numbered, idempotent migrations to existing DuckDB snapshots."""
+        applied = {
+            row[0]
+            for row in self.connection.execute(
+                "SELECT version FROM schema_migrations"
+            ).fetchall()
+        }
+        migrations = {
+            1: self._migrate_event_counts,
+            2: self._migrate_trust_metadata,
+        }
+        for version, migration in migrations.items():
+            if version in applied:
+                continue
+            self.connection.execute("BEGIN TRANSACTION")
+            try:
+                migration()
+                self.connection.execute(
+                    "INSERT INTO schema_migrations VALUES (?, ?)",
+                    [version, datetime.now(UTC)],
+                )
+                self.connection.execute("COMMIT")
+            except Exception:
+                self.connection.execute("ROLLBACK")
+                raise
 
-        ``CREATE TABLE IF NOT EXISTS`` is a no-op on tables that already exist,
-        so columns added in a later version never appear in an older database
-        file. This checks ``information_schema`` and ``ALTER TABLE ... ADD``
-        each missing column idempotently, so old snapshots keep working with
-        new code (and new files are unaffected, since the columns already exist).
-        """
+    def _migrate_event_counts(self) -> None:
         existing = {
             row[0]
             for row in self.connection.execute(
@@ -162,6 +215,44 @@ class Warehouse:
                 self.connection.execute(
                     f"ALTER TABLE pipeline_runs ADD COLUMN {column} INTEGER DEFAULT 0"
                 )
+
+    def _migrate_trust_metadata(self) -> None:
+        self._add_column_if_missing("pipeline_runs", "max_pages", "INTEGER DEFAULT 0")
+        self._add_column_if_missing(
+            "pipeline_runs", "is_incremental", "BOOLEAN DEFAULT FALSE"
+        )
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS collection_coverage (
+                repo_full_name VARCHAR NOT NULL,
+                entity_type VARCHAR NOT NULL,
+                first_observed_at TIMESTAMPTZ,
+                last_observed_at TIMESTAMPTZ,
+                record_count BIGINT NOT NULL,
+                pages_fetched INTEGER NOT NULL,
+                max_pages INTEGER NOT NULL,
+                last_run_truncated BOOLEAN NOT NULL,
+                history_complete BOOLEAN NOT NULL,
+                coverage_scope VARCHAR NOT NULL,
+                last_run_id VARCHAR NOT NULL,
+                refreshed_at TIMESTAMPTZ NOT NULL,
+                PRIMARY KEY (repo_full_name, entity_type)
+            )
+            """
+        )
+
+    def _add_column_if_missing(self, table: str, column: str, definition: str) -> None:
+        exists = self.connection.execute(
+            """
+            SELECT count(*) FROM information_schema.columns
+            WHERE table_name = ? AND column_name = ?
+            """,
+            [table, column],
+        ).fetchone()[0]
+        if not exists:
+            self.connection.execute(
+                f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+            )
 
     def upsert_repository(self, item: dict[str, Any], fetched_at: datetime) -> None:
         license_info = item.get("license") or {}
@@ -338,13 +429,96 @@ class Warehouse:
         ).fetchone()
         return row[0] if row else None
 
-    def start_run(self, run_id: str, repository: str, started_at: datetime) -> None:
+    def repository_exists(self, repository: str) -> bool:
+        return bool(
+            self.connection.execute(
+                "SELECT count(*) FROM repositories WHERE repo_full_name = ?",
+                [repository],
+            ).fetchone()[0]
+        )
+
+    def start_run(
+        self,
+        run_id: str,
+        repository: str,
+        started_at: datetime,
+        *,
+        max_pages: int = 0,
+        is_incremental: bool = False,
+    ) -> None:
         self.connection.execute(
             """
-            INSERT INTO pipeline_runs (run_id, repo_full_name, started_at, status)
-            VALUES (?, ?, ?, 'running')
+            INSERT INTO pipeline_runs (
+                run_id, repo_full_name, started_at, status, max_pages, is_incremental
+            )
+            VALUES (?, ?, ?, 'running', ?, ?)
             """,
-            [run_id, repository, started_at],
+            [run_id, repository, started_at, max_pages, is_incremental],
+        )
+
+    def update_coverage(
+        self,
+        repository: str,
+        entity_type: str,
+        *,
+        run_id: str,
+        refreshed_at: datetime,
+        pages_fetched: int,
+        max_pages: int,
+        truncated: bool,
+        coverage_scope: str = "full_history",
+        replace_history: bool = False,
+    ) -> None:
+        """Persist conservative coverage metadata for one collected entity.
+
+        Once an incremental entity has missed history because pagination was
+        truncated, later small refreshes cannot prove that the gap was filled.
+        ``history_complete`` therefore stays false until an explicit full
+        replacement (currently releases) completes without truncation.
+        """
+        if entity_type not in _COVERAGE_SOURCES:
+            raise ValueError(f"不支持的覆盖实体类型: {entity_type}")
+        table, timestamp = _COVERAGE_SOURCES[entity_type]
+        first_observed, last_observed, record_count = self.connection.execute(
+            f"""
+            SELECT min({timestamp}), max({timestamp}), count(*)
+            FROM {table} WHERE repo_full_name = ?
+            """,
+            [repository],
+        ).fetchone()
+        existing = self.connection.execute(
+            """
+            SELECT history_complete FROM collection_coverage
+            WHERE repo_full_name = ? AND entity_type = ?
+            """,
+            [repository, entity_type],
+        ).fetchone()
+        if replace_history or existing is None:
+            history_complete = not truncated
+        else:
+            history_complete = bool(existing[0]) and not truncated
+        self.connection.execute(
+            """
+            INSERT OR REPLACE INTO collection_coverage (
+                repo_full_name, entity_type, first_observed_at, last_observed_at,
+                record_count, pages_fetched, max_pages, last_run_truncated,
+                history_complete, coverage_scope, last_run_id, refreshed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                repository,
+                entity_type,
+                first_observed,
+                last_observed,
+                record_count,
+                pages_fetched,
+                max_pages,
+                truncated,
+                history_complete,
+                coverage_scope,
+                run_id,
+                refreshed_at,
+            ],
         )
 
     def finish_run(

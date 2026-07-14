@@ -13,6 +13,9 @@ def test_demo_data_produces_consistent_core_metrics(tmp_path) -> None:
         contributor = analytics.contributor_kpis(DEMO_REPOSITORY)
         monthly = analytics.monthly_activity(DEMO_REPOSITORY)
         retention = analytics.contributor_retention(DEMO_REPOSITORY)
+        coverage = analytics.data_coverage(DEMO_REPOSITORY)
+        quality = analytics.data_quality_flags(DEMO_REPOSITORY)
+        tasks = analytics.maintainer_tasks(DEMO_REPOSITORY)
 
     assert overview["commits"] == 320
     assert overview["releases"] == 12
@@ -25,6 +28,11 @@ def test_demo_data_produces_consistent_core_metrics(tmp_path) -> None:
     assert not monthly.empty
     assert not retention.empty
     assert retention["retention_rate"].between(0, 100).all()
+    assert len(coverage) == 6
+    assert coverage["history_complete"].all()
+    assert any(flag.level == "good" for flag in quality)
+    assert not tasks.empty
+    assert {"priority", "task_type", "reason", "url"}.issubset(tasks.columns)
 
 
 def test_risk_flags_have_explanations(tmp_path) -> None:

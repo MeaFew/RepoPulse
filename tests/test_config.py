@@ -19,12 +19,15 @@ def test_validate_repository_rejects_invalid_values(raw: str) -> None:
 
 def test_settings_reads_cloud_demo_mode(monkeypatch, tmp_path) -> None:
     db_path = tmp_path / "cloud-demo.duckdb"
+    snapshot_path = tmp_path / "snapshot.duckdb"
     monkeypatch.setenv("REPOPULSE_DB_PATH", str(db_path))
+    monkeypatch.setenv("REPOPULSE_SNAPSHOT_PATH", str(snapshot_path))
     monkeypatch.setenv("REPOPULSE_DEMO_MODE", "true")
     monkeypatch.setenv("REPOPULSE_MAX_PAGES", "3")
 
     settings = Settings.from_env()
 
     assert settings.db_path == db_path
+    assert settings.snapshot_path == snapshot_path
     assert settings.demo_mode is True
     assert settings.max_pages == 3

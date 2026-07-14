@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from time import sleep
 from typing import Any
 
 import httpx
@@ -16,6 +18,13 @@ class GitHubRateLimitError(GitHubAPIError):
     """Raised when GitHub asks the client to wait before sending more requests."""
 
 
+@dataclass(frozen=True)
+class PaginationStats:
+    pages_fetched: int = 0
+    items_fetched: int = 0
+    truncated: bool = False
+
+
 class GitHubClient:
     BASE_URL = "https://api.github.com"
 
@@ -26,6 +35,8 @@ class GitHubClient:
         max_pages: int = 10,
         timeout: float = 30.0,
         transport: httpx.BaseTransport | None = None,
+        retry_attempts: int = 3,
+        retry_backoff: float = 0.25,
     ) -> None:
         headers = {
             "Accept": "application/vnd.github+json",
@@ -35,6 +46,9 @@ class GitHubClient:
         if token:
             headers["Authorization"] = f"Bearer {token}"
         self.max_pages = max_pages
+        self.retry_attempts = max(1, retry_attempts)
+        self.retry_backoff = max(0.0, retry_backoff)
+        self.pagination_stats: dict[str, PaginationStats] = {}
         self._client = httpx.Client(
             base_url=self.BASE_URL,
             headers=headers,
@@ -53,7 +67,21 @@ class GitHubClient:
         self.close()
 
     def _get(self, path: str, *, params: dict[str, Any] | None = None) -> httpx.Response:
-        response = self._client.get(path, params=params)
+        response: httpx.Response | None = None
+        for attempt in range(self.retry_attempts):
+            try:
+                response = self._client.get(path, params=params)
+            except httpx.TransportError as exc:
+                if attempt + 1 >= self.retry_attempts:
+                    raise GitHubAPIError(f"GitHub API 网络错误: {exc}") from exc
+                sleep(self.retry_backoff * (2**attempt))
+                continue
+            if response.status_code >= 500 and attempt + 1 < self.retry_attempts:
+                sleep(self.retry_backoff * (2**attempt))
+                continue
+            break
+        if response is None:
+            raise GitHubAPIError("GitHub API 请求未返回响应")
         if response.status_code in {403, 429}:
             reset = response.headers.get("x-ratelimit-reset")
             retry_after = response.headers.get("retry-after")
@@ -71,19 +99,37 @@ class GitHubClient:
         path: str,
         *,
         params: dict[str, Any] | None = None,
+        coverage_key: str | None = None,
     ) -> Iterator[dict[str, Any]]:
         query = dict(params or {})
         query["per_page"] = 100
         page = 1
-        while page <= self.max_pages:
-            query["page"] = page
-            payload = self._get(path, params=query).json()
-            if not isinstance(payload, list):
-                raise GitHubAPIError(f"分页接口返回了非列表数据: {path}")
-            yield from payload
-            if len(payload) < query["per_page"]:
-                break
-            page += 1
+        pages_fetched = 0
+        items_fetched = 0
+        truncated = False
+        try:
+            while page <= self.max_pages:
+                query["page"] = page
+                payload = self._get(path, params=query).json()
+                if not isinstance(payload, list):
+                    raise GitHubAPIError(f"分页接口返回了非列表数据: {path}")
+                pages_fetched += 1
+                items_fetched += len(payload)
+                yield from payload
+                if len(payload) < query["per_page"]:
+                    break
+                if page == self.max_pages:
+                    truncated = True
+                    break
+                page += 1
+        finally:
+            if coverage_key:
+                previous = self.pagination_stats.get(coverage_key, PaginationStats())
+                self.pagination_stats[coverage_key] = PaginationStats(
+                    pages_fetched=previous.pages_fetched + pages_fetched,
+                    items_fetched=previous.items_fetched + items_fetched,
+                    truncated=previous.truncated or truncated,
+                )
 
     def get_repository(self, repository: str) -> dict[str, Any]:
         return self._get(f"/repos/{repository}").json()
@@ -95,7 +141,9 @@ class GitHubClient:
         # GitHub's issues endpoint also returns pull requests. Keep only true issues.
         return [
             item
-            for item in self._paginate(f"/repos/{repository}/issues", params=params)
+            for item in self._paginate(
+                f"/repos/{repository}/issues", params=params, coverage_key="issues"
+            )
             if "pull_request" not in item
         ]
 
@@ -104,7 +152,11 @@ class GitHubClient:
     ) -> list[dict[str, Any]]:
         params = {"state": "all", "sort": "updated", "direction": "desc"}
         items: list[dict[str, Any]] = []
-        for item in self._paginate(f"/repos/{repository}/pulls", params=params):
+        for item in self._paginate(
+            f"/repos/{repository}/pulls",
+            params=params,
+            coverage_key="pull_requests",
+        ):
             updated_at = _parse_timestamp(item.get("updated_at"))
             if since and updated_at and updated_at < _ensure_utc(since):
                 break
@@ -117,10 +169,16 @@ class GitHubClient:
         params: dict[str, Any] = {}
         if since:
             params["since"] = _github_timestamp(since)
-        return list(self._paginate(f"/repos/{repository}/commits", params=params))
+        return list(
+            self._paginate(
+                f"/repos/{repository}/commits", params=params, coverage_key="commits"
+            )
+        )
 
     def get_releases(self, repository: str) -> list[dict[str, Any]]:
-        return list(self._paginate(f"/repos/{repository}/releases"))
+        return list(
+            self._paginate(f"/repos/{repository}/releases", coverage_key="releases")
+        )
 
     def get_issue_comments(
         self, repository: str, *, since: datetime | None = None
@@ -134,7 +192,11 @@ class GitHubClient:
         if since:
             params["since"] = _github_timestamp(since)
         comments: list[dict[str, Any]] = []
-        for item in self._paginate(f"/repos/{repository}/issues/comments", params=params):
+        for item in self._paginate(
+            f"/repos/{repository}/issues/comments",
+            params=params,
+            coverage_key="issue_comments",
+        ):
             issue_url = item.get("issue_url") or ""
             number = _issue_number_from_url(issue_url)
             if number is None:
@@ -151,7 +213,8 @@ class GitHubClient:
         """
         reviews: list[dict[str, Any]] = []
         for item in self._paginate(
-            f"/repos/{repository}/pulls/{pr_number}/reviews"
+            f"/repos/{repository}/pulls/{pr_number}/reviews",
+            coverage_key="pr_reviews",
         ):
             reviews.append({**item, "pr_number": pr_number})
         return reviews

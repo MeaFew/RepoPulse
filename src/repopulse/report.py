@@ -105,10 +105,21 @@ def build_report(
     issue_resp = analytics.issue_response_kpis(repository, window)
     pr_resp = analytics.pr_response_kpis(repository, window)
     backlog = analytics.backlog_kpis(repository, window)
+    coverage = analytics.data_coverage(repository)
+    quality_flags = analytics.data_quality_flags(repository)
+    tasks = analytics.maintainer_tasks(repository, window)
     risks = analytics.risk_flags(repository, window)
 
     findings: list[str] = []
     recommendations: list[str] = []
+
+    if not coverage.empty:
+        complete = int(coverage["history_complete"].sum())
+        findings.append(f"{complete}/{len(coverage)} 类数据未发现历史分页缺口。")
+    if not tasks.empty:
+        high_priority = int((tasks["priority"] == "高").sum())
+        findings.append(f"维护者待办共 {len(tasks)} 项，其中高优先级 {high_priority} 项。")
+        recommendations.append("优先处理报告中的高优先级陈旧 Issue 和等待 Review 的 PR。")
 
     if (close_rate := issue.get("close_rate")) is not None:
         findings.append(f"Issue 关闭率为 {close_rate}%。")
@@ -162,6 +173,12 @@ def build_report(
         "超 90 天 Issue 占比 %": backlog_pct,
         "近 90 天活跃贡献者": active,
         "头部贡献者集中度 %": concentration,
+        "数据覆盖完整实体": (
+            f"{int(coverage['history_complete'].sum())}/{len(coverage)}"
+            if not coverage.empty
+            else "未知"
+        ),
+        "维护者待办": len(tasks),
     }
 
     return Report(
@@ -169,7 +186,7 @@ def build_report(
         generated_at=datetime.now(UTC),
         window=window,
         findings=findings,
-        risks=[f for f in risks if f.level != "good"],
+        risks=[f for f in [*quality_flags, *risks] if f.level != "good"],
         recommendations=recommendations,
         metrics=metrics,
     )

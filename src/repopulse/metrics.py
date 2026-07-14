@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import duckdb
 import pandas as pd
+
+_ENTITY_LABELS = {
+    "issues": "Issue",
+    "pull_requests": "Pull Request",
+    "commits": "Commit",
+    "releases": "Release",
+    "issue_comments": "Issue 评论",
+    "pr_reviews": "PR Review",
+}
 
 
 @dataclass(frozen=True)
@@ -295,13 +304,216 @@ class Analytics:
             """
             SELECT started_at, finished_at, status, issues_loaded, pull_requests_loaded,
                    commits_loaded, releases_loaded, issue_comments_loaded, pr_reviews_loaded,
-                   error_message
+                   max_pages, is_incremental, error_message
             FROM pipeline_runs
             WHERE repo_full_name = ?
             ORDER BY started_at DESC
             LIMIT 10
             """,
             [repository],
+        ).df()
+
+    def data_coverage(self, repository: str) -> pd.DataFrame:
+        """Return persisted evidence about history depth and the latest refresh."""
+        return self.connection.execute(
+            """
+            SELECT entity_type, record_count, first_observed_at, last_observed_at,
+                   pages_fetched, max_pages, last_run_truncated, history_complete,
+                   coverage_scope, refreshed_at
+            FROM collection_coverage
+            WHERE repo_full_name = ?
+            ORDER BY entity_type
+            """,
+            [repository],
+        ).df()
+
+    def data_quality_flags(self, repository: str) -> list[RiskFlag]:
+        """Explain whether the current metrics are fresh and historically complete."""
+        coverage = self.data_coverage(repository)
+        latest_run = self._one(
+            """
+            SELECT status, started_at, finished_at, max_pages, is_incremental, error_message
+            FROM pipeline_runs WHERE repo_full_name = ?
+            ORDER BY started_at DESC LIMIT 1
+            """,
+            [repository],
+        )
+        flags: list[RiskFlag] = []
+
+        if latest_run.get("status") == "failed":
+            detail = latest_run.get("error_message") or "未记录具体错误。"
+            flags.append(RiskFlag("high", "最近采集失败", str(detail)))
+        elif latest_run.get("status") == "running":
+            flags.append(RiskFlag("medium", "采集尚未结束", "最近一次采集仍处于运行状态。"))
+
+        if coverage.empty:
+            flags.append(
+                RiskFlag(
+                    "medium",
+                    "覆盖范围未知",
+                    "这份数据来自旧版快照；重新采集后才能判断是否覆盖完整历史。",
+                )
+            )
+        else:
+            incomplete = coverage.loc[~coverage["history_complete"], "entity_type"].tolist()
+            if incomplete:
+                labels = "、".join(_ENTITY_LABELS.get(item, item) for item in incomplete)
+                flags.append(
+                    RiskFlag(
+                        "medium",
+                        "历史数据可能不完整",
+                        f"{labels} 曾达到分页上限；后续增量刷新不能自动补齐此前缺口。",
+                    )
+                )
+            if "pr_reviews" in coverage["entity_type"].tolist():
+                flags.append(
+                    RiskFlag(
+                        "info",
+                        "PR Review 为窗口覆盖",
+                        "PR Review 只采集最近 180 天内创建的 PR，这是明确的成本边界。",
+                    )
+                )
+
+        fetched_at = self.overview(repository).get("fetched_at")
+        if fetched_at is not None:
+            if fetched_at.tzinfo is None:
+                fetched_at = fetched_at.replace(tzinfo=UTC)
+            age = datetime.now(UTC) - fetched_at.astimezone(UTC)
+            if age > timedelta(hours=48):
+                flags.append(
+                    RiskFlag(
+                        "medium",
+                        "数据已超过 48 小时未刷新",
+                        f"仓库元数据最后采集于 {fetched_at:%Y-%m-%d %H:%M UTC}。",
+                    )
+                )
+
+        if not any(flag.level in {"high", "medium"} for flag in flags):
+            flags.insert(
+                0,
+                RiskFlag(
+                    "good",
+                    "核心数据可信度正常",
+                    "最近采集成功，且未发现由分页上限造成的历史缺口。",
+                ),
+            )
+        return flags
+
+    def maintainer_tasks(
+        self,
+        repository: str,
+        window: Window | None = None,
+        limit: int = 20,
+    ) -> pd.DataFrame:
+        """Prioritized, directly actionable open Issue and PR follow-ups."""
+        end = (window or Window.all()).with_end_now().end
+        return self.connection.execute(
+            """
+            WITH issue_responses AS (
+                SELECT DISTINCT i.issue_number
+                FROM issues i
+                JOIN issue_comments c
+                  ON c.repo_full_name = i.repo_full_name
+                 AND c.issue_number = i.issue_number
+                WHERE i.repo_full_name = ?
+                  AND c.author <> i.author
+                  AND NOT (starts_with(c.author, 'dependabot')
+                        OR starts_with(c.author, 'github-actions')
+                        OR ends_with(c.author, '[bot]')
+                        OR c.author = 'codecov')
+            ), issue_tasks AS (
+                SELECT
+                    CASE
+                        WHEN i.created_at < ? - INTERVAL 90 DAY THEN 3
+                        WHEN r.issue_number IS NULL
+                             AND i.created_at < ? - INTERVAL 30 DAY THEN 3
+                        ELSE 2
+                    END AS sort_rank,
+                    CASE
+                        WHEN i.created_at < ? - INTERVAL 90 DAY
+                          OR (r.issue_number IS NULL
+                              AND i.created_at < ? - INTERVAL 30 DAY) THEN '高'
+                        ELSE '中'
+                    END AS priority,
+                    'Issue' AS task_type,
+                    i.issue_number AS item_number,
+                    i.title,
+                    date_diff('day', i.created_at, ?) AS age_days,
+                    CASE
+                        WHEN i.created_at < ? - INTERVAL 90 DAY
+                             AND r.issue_number IS NULL THEN '开放超过 90 天且无人响应'
+                        WHEN i.created_at < ? - INTERVAL 90 DAY THEN '开放超过 90 天'
+                        WHEN r.issue_number IS NULL THEN '超过 7 天无人响应'
+                        ELSE '开放超过 30 天'
+                    END AS reason,
+                    concat('https://github.com/', i.repo_full_name, '/issues/', i.issue_number)
+                        AS url
+                FROM issues i
+                LEFT JOIN issue_responses r USING (issue_number)
+                WHERE i.repo_full_name = ? AND i.state = 'open' AND i.created_at < ?
+                  AND (i.created_at < ? - INTERVAL 30 DAY
+                       OR (r.issue_number IS NULL
+                           AND i.created_at < ? - INTERVAL 7 DAY))
+            ), reviewed_prs AS (
+                SELECT DISTINCT p.pr_number
+                FROM pull_requests p
+                JOIN pr_reviews r
+                  ON r.repo_full_name = p.repo_full_name AND r.pr_number = p.pr_number
+                WHERE p.repo_full_name = ?
+                  AND r.author <> p.author
+                  AND NOT (starts_with(r.author, 'dependabot')
+                        OR starts_with(r.author, 'github-actions')
+                        OR ends_with(r.author, '[bot]')
+                        OR r.author = 'codecov')
+            ), pr_tasks AS (
+                SELECT
+                    CASE
+                        WHEN p.created_at < ? - INTERVAL 90 DAY THEN 3
+                        WHEN r.pr_number IS NULL
+                             AND p.created_at < ? - INTERVAL 14 DAY THEN 3
+                        ELSE 2
+                    END AS sort_rank,
+                    CASE
+                        WHEN p.created_at < ? - INTERVAL 90 DAY
+                          OR (r.pr_number IS NULL
+                              AND p.created_at < ? - INTERVAL 14 DAY) THEN '高'
+                        ELSE '中'
+                    END AS priority,
+                    'PR' AS task_type,
+                    p.pr_number AS item_number,
+                    p.title,
+                    date_diff('day', p.created_at, ?) AS age_days,
+                    CASE
+                        WHEN r.pr_number IS NULL THEN '等待首次 Review'
+                        ELSE '开放超过 30 天'
+                    END AS reason,
+                    concat('https://github.com/', p.repo_full_name, '/pull/', p.pr_number) AS url
+                FROM pull_requests p
+                LEFT JOIN reviewed_prs r USING (pr_number)
+                WHERE p.repo_full_name = ? AND p.state = 'open' AND NOT p.draft
+                  AND p.created_at < ?
+                  AND (p.created_at < ? - INTERVAL 30 DAY
+                       OR (r.pr_number IS NULL
+                           AND p.created_at < ? - INTERVAL 7 DAY))
+            )
+            SELECT priority, task_type, item_number, title, age_days, reason, url
+            FROM (
+                SELECT * FROM issue_tasks
+                UNION ALL
+                SELECT * FROM pr_tasks
+            )
+            ORDER BY sort_rank DESC, age_days DESC, task_type, item_number
+            LIMIT ?
+            """,
+            [
+                repository,
+                end, end, end, end, end, end, end,
+                repository, end, end, end,
+                repository,
+                end, end, end, end, end,
+                repository, end, end, end,
+                limit,
+            ],
         ).df()
 
     # --- Maintenance-efficiency metrics (events layer) ----------------------

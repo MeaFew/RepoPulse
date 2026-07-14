@@ -9,10 +9,10 @@
 
 RepoPulse 通过 GitHub REST API 增量采集 Issue、Pull Request、Commit、Release 等公开活动，将明细数据写入 DuckDB，并用统一 SQL 指标驱动 Streamlit 交互式看板。它关注的不只是图表，还包括可解释的指标口径、数据质量、自动化采集和可复现交付。
 
-[在线体验](https://repopulse-c7wefwy6hywnphnavs8rme.streamlit.app/) · [快速开始](#快速开始) · [指标字典](docs/metric_dictionary.md) · [架构说明](docs/architecture.md) · [部署指南](docs/deployment.md)
+[在线体验](https://repopulse-c7wefwy6hywnphnavs8rme.streamlit.app/) · [快速开始](#快速开始) · [指标字典](docs/metric_dictionary.md) · [架构说明](docs/architecture.md) · [部署指南](docs/deployment.md) · [更新日志](CHANGELOG.md)
 
 > [!NOTE]
-> 在线 Demo 是安全只读模式，展示每日更新的预采集仓库快照，不支持访客临时采集任意仓库。Streamlit Community Cloud 长时间无人访问时会休眠，首次打开可能需要手动唤醒并等待片刻。
+> 在线 Demo 是安全只读模式，默认展示每日更新的 `duckdb/duckdb`、`pola-rs/polars` 和 `sqlglot/sqlglot` 真实仓库快照，不支持访客临时采集任意仓库。若快照不可用，页面会明确标注并回退到模拟数据。Streamlit Community Cloud 长时间无人访问时会休眠，首次打开可能需要手动唤醒并等待片刻。
 
 ![RepoPulse 单仓库分析看板](docs/assets/dashboard-overview.png)
 
@@ -26,6 +26,8 @@ RepoPulse 通过 GitHub REST API 增量采集 Issue、Pull Request、Commit、Re
 | 风险诊断 | 30/90 天积压、无响应 Issue、未合并 PR 等风险是否在上升？ |
 | 横向对比 | 多个同类仓库中，谁的响应更快、积压更少、贡献更分散？ |
 | 报告导出 | 一键生成包含主要发现、风险与建议的 HTML/CSV 报告。 |
+| 数据可信度 | 当前数据是否新鲜、达到分页上限、覆盖完整历史？ |
+| 维护者待办 | 哪些陈旧 Issue、无人响应项和等待 Review 的 PR 应优先处理？ |
 
 所有核心指标支持 30/90/180 天和自定义日期范围联动筛选。
 
@@ -173,6 +175,8 @@ pytest --cov=repopulse --cov-report=term-missing
 - [x] 首次响应、首次 Review 与 30/90 天积压指标
 - [x] 每日快照刷新与云端只读 Demo
 - [x] HTML/CSV 分析报告导出
+- [x] 数据覆盖、新鲜度和分页完整性诊断
+- [x] 陈旧 Issue、无响应项和等待 Review PR 的维护者待办
 - [ ] 新贡献者 PR 漏斗：创建 → Review → 合并
 - [ ] 仓库横向对标和语言/规模分层
 - [ ] 贡献者 30/90 天留存与生存分析

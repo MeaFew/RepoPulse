@@ -6,7 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from repopulse.config import validate_repository
-from repopulse.github_client import GitHubClient
+from repopulse.github_client import GitHubClient, PaginationStats
 from repopulse.storage import Warehouse
 
 # Only PRs created within this trailing window get their per-PR reviews fetched.
@@ -22,6 +22,7 @@ class CollectionResult:
     counts: dict[str, int]
     started_at: datetime
     finished_at: datetime
+    truncated_entities: tuple[str, ...] = ()
 
     @property
     def total_loaded(self) -> int:
@@ -43,7 +44,14 @@ def collect_repository(
 
     with Warehouse(db_path) as warehouse:
         warehouse.initialize()
-        warehouse.start_run(run_id, repository, started_at)
+        is_incremental = warehouse.repository_exists(repository)
+        warehouse.start_run(
+            run_id,
+            repository,
+            started_at,
+            max_pages=max_pages,
+            is_incremental=is_incremental,
+        )
         try:
             # A small overlap makes updates resilient to equal timestamps and clock skew.
             issue_since = _with_overlap(warehouse.latest_timestamp(repository, "issues"))
@@ -70,6 +78,7 @@ def collect_repository(
                 pr_reviews: list[dict] = []
                 for pr_number in review_pr_numbers:
                     pr_reviews.extend(github.get_pr_reviews(repository, pr_number))
+                pagination_stats = dict(github.pagination_stats)
 
             warehouse.upsert_repository(repo, fetched_at=datetime.now(UTC))
             counts = {
@@ -81,6 +90,23 @@ def collect_repository(
                 "pr_reviews": warehouse.upsert_pr_reviews(repository, pr_reviews),
             }
             finished_at = datetime.now(UTC)
+            for entity_type in counts:
+                stats = pagination_stats.get(entity_type, PaginationStats())
+                warehouse.update_coverage(
+                    repository,
+                    entity_type,
+                    run_id=run_id,
+                    refreshed_at=finished_at,
+                    pages_fetched=stats.pages_fetched,
+                    max_pages=max_pages,
+                    truncated=stats.truncated,
+                    coverage_scope=(
+                        f"trailing_{PR_REVIEW_WINDOW_DAYS}_days"
+                        if entity_type == "pr_reviews"
+                        else "full_history"
+                    ),
+                    replace_history=entity_type == "releases",
+                )
             warehouse.finish_run(run_id, finished_at=finished_at, status="success", counts=counts)
         except Exception as exc:
             finished_at = datetime.now(UTC)
@@ -93,7 +119,16 @@ def collect_repository(
             )
             raise
 
-    return CollectionResult(repository, counts, started_at, finished_at)
+    truncated_entities = tuple(
+        sorted(entity for entity, stats in pagination_stats.items() if stats.truncated)
+    )
+    return CollectionResult(
+        repository,
+        counts,
+        started_at,
+        finished_at,
+        truncated_entities,
+    )
 
 
 def _recent_pr_numbers(
