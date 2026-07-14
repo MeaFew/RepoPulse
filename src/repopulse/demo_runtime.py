@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import copy2
+from tempfile import NamedTemporaryFile
 
 
 @dataclass(frozen=True)
@@ -38,9 +39,22 @@ def select_demo_database(
     current_signature = marker.read_text(encoding="utf-8") if marker.is_file() else None
 
     if not target.is_file() or current_signature != signature:
-        temporary = target.with_suffix(f"{target.suffix}.copying")
-        copy2(source, temporary)
-        temporary.replace(target)
+        # Streamlit may run more than one session while a deployment wakes up.
+        # Give every copier its own file so concurrent reruns cannot replace a
+        # shared ``.copying`` path while another copy is still in progress.
+        with NamedTemporaryFile(
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            suffix=".copying",
+            delete=False,
+        ) as temporary_file:
+            temporary = Path(temporary_file.name)
+
+        try:
+            copy2(source, temporary)
+            temporary.replace(target)
+        finally:
+            temporary.unlink(missing_ok=True)
         marker.write_text(signature, encoding="utf-8")
 
     return DemoDatabaseSelection(configured_db_path, True)
