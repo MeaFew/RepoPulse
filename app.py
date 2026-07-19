@@ -13,6 +13,7 @@ from repopulse import metrics as metrics_module
 from repopulse.config import Settings
 from repopulse.demo_runtime import fallback_database_path, select_demo_database
 from repopulse.github_client import GitHubAPIError
+from repopulse.metrics import ENTITY_LABELS
 from repopulse.pipeline import collect_repository
 from repopulse.sample_data import load_demo_data
 from repopulse.storage import Warehouse
@@ -235,14 +236,7 @@ with mode[0]:
                     else "—",
                 )
 
-                entity_labels = {
-                    "issues": "Issue",
-                    "pull_requests": "Pull Request",
-                    "commits": "Commit",
-                    "releases": "Release",
-                    "issue_comments": "Issue 评论",
-                    "pr_reviews": "PR Review",
-                }
+                entity_labels = ENTITY_LABELS
                 coverage_view = coverage.copy()
                 coverage_view["entity_type"] = coverage_view["entity_type"].map(
                     lambda value: entity_labels.get(value, value)
@@ -354,8 +348,7 @@ with mode[0]:
                     )
                     st.plotly_chart(figure, use_container_width=True)
             st.caption(
-                "贡献者活动口径：提交 Commit 或创建 PR；"
-                "同一贡献者同月多次活动只计算一次留存。"
+                "贡献者活动口径：提交 Commit 或创建 PR；同一贡献者同月多次活动只计算一次留存。"
             )
 
         with operations_tab:
@@ -465,9 +458,7 @@ with mode[0]:
 with mode[1]:
     st.subheader("多仓库对比")
     compare_default = repositories[: min(3, len(repositories))]
-    selected_repos = st.multiselect(
-        "选择 2~5 个仓库", repositories, default=compare_default
-    )
+    selected_repos = st.multiselect("选择 2~5 个仓库", repositories, default=compare_default)
     if len(selected_repos) < 2:
         st.info("请至少选择 2 个仓库进行对比。")
     else:

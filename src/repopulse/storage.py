@@ -179,9 +179,7 @@ class Warehouse:
         """Apply numbered, idempotent migrations to existing DuckDB snapshots."""
         applied = {
             row[0]
-            for row in self.connection.execute(
-                "SELECT version FROM schema_migrations"
-            ).fetchall()
+            for row in self.connection.execute("SELECT version FROM schema_migrations").fetchall()
         }
         migrations = {
             1: self._migrate_event_counts,
@@ -218,9 +216,7 @@ class Warehouse:
 
     def _migrate_trust_metadata(self) -> None:
         self._add_column_if_missing("pipeline_runs", "max_pages", "INTEGER DEFAULT 0")
-        self._add_column_if_missing(
-            "pipeline_runs", "is_incremental", "BOOLEAN DEFAULT FALSE"
-        )
+        self._add_column_if_missing("pipeline_runs", "is_incremental", "BOOLEAN DEFAULT FALSE")
         self.connection.execute(
             """
             CREATE TABLE IF NOT EXISTS collection_coverage (
@@ -250,9 +246,7 @@ class Warehouse:
             [table, column],
         ).fetchone()[0]
         if not exists:
-            self.connection.execute(
-                f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
-            )
+            self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def upsert_repository(self, item: dict[str, Any], fetched_at: datetime) -> None:
         license_info = item.get("license") or {}

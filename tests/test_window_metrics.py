@@ -51,8 +51,13 @@ def test_issue_first_response_excludes_author_self_reply(tmp_path) -> None:
     issue_created = now - timedelta(days=10)
     issues = [
         {
-            "number": 1, "state": "closed", "user": {"login": "alice"},
-            "title": "x", "labels": [], "comments": 2, "locked": False,
+            "number": 1,
+            "state": "closed",
+            "user": {"login": "alice"},
+            "title": "x",
+            "labels": [],
+            "comments": 2,
+            "locked": False,
             "created_at": _iso(issue_created),
             "updated_at": _iso(now - timedelta(days=8)),
             "closed_at": _iso(now - timedelta(days=8)),
@@ -60,11 +65,21 @@ def test_issue_first_response_excludes_author_self_reply(tmp_path) -> None:
     ]
     comments = [
         # Author replies to herself at +1h -- must be ignored.
-        {"id": 11, "issue_number": 1, "user": {"login": "alice"},
-         "body": "bump", "created_at": _iso(issue_created + timedelta(hours=1))},
+        {
+            "id": 11,
+            "issue_number": 1,
+            "user": {"login": "alice"},
+            "body": "bump",
+            "created_at": _iso(issue_created + timedelta(hours=1)),
+        },
         # Real maintainer reply at +5h -- this is the first response.
-        {"id": 12, "issue_number": 1, "user": {"login": "bob"},
-         "body": "fix incoming", "created_at": _iso(issue_created + timedelta(hours=5))},
+        {
+            "id": 12,
+            "issue_number": 1,
+            "user": {"login": "bob"},
+            "body": "fix incoming",
+            "created_at": _iso(issue_created + timedelta(hours=5)),
+        },
     ]
     db = _build(tmp_path, issues, [], comments, [])
     with Analytics(db) as a:
@@ -80,8 +95,13 @@ def test_issue_first_response_excludes_bots(tmp_path) -> None:
     issue_created = now - timedelta(days=5)
     issues = [
         {
-            "number": 2, "state": "open", "user": {"login": "alice"},
-            "title": "x", "labels": [], "comments": 1, "locked": False,
+            "number": 2,
+            "state": "open",
+            "user": {"login": "alice"},
+            "title": "x",
+            "labels": [],
+            "comments": 1,
+            "locked": False,
             "created_at": _iso(issue_created),
             "updated_at": _iso(now - timedelta(days=4)),
             "closed_at": None,
@@ -89,13 +109,28 @@ def test_issue_first_response_excludes_bots(tmp_path) -> None:
     ]
     comments = [
         # dependabot + a [bot] -- both ignored.
-        {"id": 21, "issue_number": 2, "user": {"login": "dependabot"},
-         "body": "bump deps", "created_at": _iso(issue_created + timedelta(hours=1))},
-        {"id": 22, "issue_number": 2, "user": {"login": "renovate[bot]"},
-         "body": "renovate", "created_at": _iso(issue_created + timedelta(hours=2))},
+        {
+            "id": 21,
+            "issue_number": 2,
+            "user": {"login": "dependabot"},
+            "body": "bump deps",
+            "created_at": _iso(issue_created + timedelta(hours=1)),
+        },
+        {
+            "id": 22,
+            "issue_number": 2,
+            "user": {"login": "renovate[bot]"},
+            "body": "renovate",
+            "created_at": _iso(issue_created + timedelta(hours=2)),
+        },
         # First human reply.
-        {"id": 23, "issue_number": 2, "user": {"login": "bob"},
-         "body": "looking", "created_at": _iso(issue_created + timedelta(hours=24))},
+        {
+            "id": 23,
+            "issue_number": 2,
+            "user": {"login": "bob"},
+            "body": "looking",
+            "created_at": _iso(issue_created + timedelta(hours=24)),
+        },
     ]
     db = _build(tmp_path, issues, [], comments, [])
     with Analytics(db) as a:
@@ -109,8 +144,13 @@ def test_issue_with_no_response_reported_separately(tmp_path) -> None:
     now = datetime.now(UTC)
     issues = [
         {
-            "number": 3, "state": "open", "user": {"login": "alice"},
-            "title": "x", "labels": [], "comments": 0, "locked": False,
+            "number": 3,
+            "state": "open",
+            "user": {"login": "alice"},
+            "title": "x",
+            "labels": [],
+            "comments": 0,
+            "locked": False,
             "created_at": _iso(now - timedelta(days=20)),
             "updated_at": _iso(now - timedelta(days=20)),
             "closed_at": None,
@@ -134,8 +174,13 @@ def test_pr_first_review_excludes_author_and_bot(tmp_path) -> None:
     pr_created = now - timedelta(days=6)
     prs = [
         {
-            "number": 10, "state": "closed", "user": {"login": "alice"},
-            "title": "x", "draft": False, "comments": 0, "review_comments": 0,
+            "number": 10,
+            "state": "closed",
+            "user": {"login": "alice"},
+            "title": "x",
+            "draft": False,
+            "comments": 0,
+            "review_comments": 0,
             "created_at": _iso(pr_created),
             "updated_at": _iso(now - timedelta(days=5)),
             "closed_at": _iso(now - timedelta(days=5)),
@@ -144,15 +189,30 @@ def test_pr_first_review_excludes_author_and_bot(tmp_path) -> None:
         }
     ]
     reviews = [
-        {"id": 101, "pr_number": 10, "user": {"login": "alice"},
-         "state": "commented", "body": "self",
-         "submitted_at": _iso(pr_created + timedelta(hours=4))},
-        {"id": 102, "pr_number": 10, "user": {"login": "github-actions[bot]"},
-         "state": "commented", "body": "ci",
-         "submitted_at": _iso(pr_created + timedelta(hours=5))},
-        {"id": 103, "pr_number": 10, "user": {"login": "carol"},
-         "state": "approved", "body": "lgtm",
-         "submitted_at": _iso(pr_created + timedelta(hours=14))},
+        {
+            "id": 101,
+            "pr_number": 10,
+            "user": {"login": "alice"},
+            "state": "commented",
+            "body": "self",
+            "submitted_at": _iso(pr_created + timedelta(hours=4)),
+        },
+        {
+            "id": 102,
+            "pr_number": 10,
+            "user": {"login": "github-actions[bot]"},
+            "state": "commented",
+            "body": "ci",
+            "submitted_at": _iso(pr_created + timedelta(hours=5)),
+        },
+        {
+            "id": 103,
+            "pr_number": 10,
+            "user": {"login": "carol"},
+            "state": "approved",
+            "body": "lgtm",
+            "submitted_at": _iso(pr_created + timedelta(hours=14)),
+        },
     ]
     db = _build(tmp_path, [], prs, [], reviews)
     with Analytics(db) as a:
@@ -170,8 +230,13 @@ def test_window_filters_issues_by_creation_date(tmp_path) -> None:
     now = datetime.now(UTC)
     issues = [
         {
-            "number": i, "state": "closed", "user": {"login": "alice"},
-            "title": "x", "labels": [], "comments": 0, "locked": False,
+            "number": i,
+            "state": "closed",
+            "user": {"login": "alice"},
+            "title": "x",
+            "labels": [],
+            "comments": 0,
+            "locked": False,
             "created_at": _iso(now - timedelta(days=age)),
             "updated_at": _iso(now - timedelta(days=age)),
             "closed_at": _iso(now - timedelta(days=age - 1)),
@@ -192,15 +257,25 @@ def test_window_filters_monthly_activity(tmp_path) -> None:
     now = datetime.now(UTC)
     issues = [
         {
-            "number": 1, "state": "closed", "user": {"login": "alice"},
-            "title": "x", "labels": [], "comments": 0, "locked": False,
+            "number": 1,
+            "state": "closed",
+            "user": {"login": "alice"},
+            "title": "x",
+            "labels": [],
+            "comments": 0,
+            "locked": False,
             "created_at": _iso(now - timedelta(days=400)),
             "updated_at": _iso(now - timedelta(days=400)),
             "closed_at": _iso(now - timedelta(days=399)),
         },
         {
-            "number": 2, "state": "open", "user": {"login": "bob"},
-            "title": "y", "labels": [], "comments": 0, "locked": False,
+            "number": 2,
+            "state": "open",
+            "user": {"login": "bob"},
+            "title": "y",
+            "labels": [],
+            "comments": 0,
+            "locked": False,
             "created_at": _iso(now - timedelta(days=20)),
             "updated_at": _iso(now - timedelta(days=20)),
             "closed_at": None,
@@ -223,8 +298,13 @@ def test_backlog_90_day_ratio(tmp_path) -> None:
     now = datetime.now(UTC)
     issues = [
         {
-            "number": i, "state": "open", "user": {"login": "alice"},
-            "title": "x", "labels": [], "comments": 0, "locked": False,
+            "number": i,
+            "state": "open",
+            "user": {"login": "alice"},
+            "title": "x",
+            "labels": [],
+            "comments": 0,
+            "locked": False,
             "created_at": _iso(now - timedelta(days=age)),
             "updated_at": _iso(now - timedelta(days=age)),
             "closed_at": None,
@@ -250,10 +330,15 @@ def test_comparison_kpis_returns_one_row_per_repo(tmp_path) -> None:
         for repo in ["owner/a", "owner/b"]:
             wh.upsert_repository(
                 {
-                    "full_name": repo, "description": None,
-                    "stargazers_count": 10, "forks_count": 1,
-                    "subscribers_count": 1, "open_issues_count": 1,
-                    "default_branch": "main", "language": "Python", "license": None,
+                    "full_name": repo,
+                    "description": None,
+                    "stargazers_count": 10,
+                    "forks_count": 1,
+                    "subscribers_count": 1,
+                    "open_issues_count": 1,
+                    "default_branch": "main",
+                    "language": "Python",
+                    "license": None,
                     "created_at": "2024-01-01T00:00:00Z",
                     "updated_at": "2024-06-01T00:00:00Z",
                     "pushed_at": "2024-06-01T00:00:00Z",
@@ -264,8 +349,13 @@ def test_comparison_kpis_returns_one_row_per_repo(tmp_path) -> None:
                 repo,
                 [
                     {
-                        "number": 1, "state": "closed", "user": {"login": "x"},
-                        "title": "y", "labels": [], "comments": 0, "locked": False,
+                        "number": 1,
+                        "state": "closed",
+                        "user": {"login": "x"},
+                        "title": "y",
+                        "labels": [],
+                        "comments": 0,
+                        "locked": False,
                         "created_at": "2024-05-01T00:00:00Z",
                         "updated_at": "2024-05-02T00:00:00Z",
                         "closed_at": "2024-05-02T00:00:00Z",

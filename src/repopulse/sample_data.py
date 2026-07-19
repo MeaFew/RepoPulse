@@ -4,6 +4,7 @@ import random
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from repopulse._timeutils import parse_iso, to_iso_z
 from repopulse.storage import Warehouse
 
 DEMO_REPOSITORY = "repopulse/demo-project"
@@ -119,7 +120,7 @@ def load_demo_data(db_path: str | Path) -> str:
     comment_id = 100000
     for issue in issues:
         author = issue["user"]["login"]
-        created = _parse_iso(issue["created_at"])
+        created = parse_iso(issue["created_at"])
         if rng.random() < 0.15:
             continue  # no response at all
         responder = rng.choice([m for m in maintainers if m != author] or maintainers)
@@ -140,7 +141,7 @@ def load_demo_data(db_path: str | Path) -> str:
     review_id = 200000
     for pr in pull_requests:
         author = pr["user"]["login"]
-        created = _parse_iso(pr["created_at"])
+        created = parse_iso(pr["created_at"])
         if pr["draft"] or rng.random() < 0.2:
             continue
         reviewer = rng.choice([m for m in maintainers if m != author] or maintainers)
@@ -217,9 +218,5 @@ def load_demo_data(db_path: str | Path) -> str:
     return DEMO_REPOSITORY
 
 
-def _parse_iso(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
 def _iso(value: datetime) -> str:
-    return value.isoformat().replace("+00:00", "Z")
+    return to_iso_z(value)

@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+from repopulse._timeutils import coerce_utc
 from repopulse.config import validate_repository
 from repopulse.github_client import GitHubClient, PaginationStats
 from repopulse.storage import Warehouse
@@ -57,9 +58,7 @@ def collect_repository(
             issue_since = _with_overlap(warehouse.latest_timestamp(repository, "issues"))
             pr_since = _with_overlap(warehouse.latest_timestamp(repository, "pull_requests"))
             commit_since = _with_overlap(warehouse.latest_timestamp(repository, "commits"))
-            comment_since = _with_overlap(
-                warehouse.latest_timestamp(repository, "issue_comments")
-            )
+            comment_since = _with_overlap(warehouse.latest_timestamp(repository, "issue_comments"))
 
             with GitHubClient(token, max_pages=max_pages) as github:
                 repo = github.get_repository(repository)
@@ -148,7 +147,7 @@ def _recent_pr_numbers(
 
     for item in new_pull_requests:
         created = item.get("created_at")
-        if created and _coerce_utc(created) >= cutoff:
+        if created and coerce_utc(created) >= cutoff:
             numbers.add(item["number"])
 
     # If this is an incremental run, also top up with PRs already stored that
@@ -164,16 +163,6 @@ def _recent_pr_numbers(
         numbers.update(row[0] for row in rows)
 
     return sorted(numbers)
-
-
-def _coerce_utc(value: str | datetime) -> datetime:
-    if isinstance(value, datetime):
-        dt = value
-    else:
-        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
 
 
 def _with_overlap(value: datetime | None) -> datetime | None:

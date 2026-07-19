@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import copy2
@@ -52,12 +53,24 @@ def select_demo_database(
 
         try:
             copy2(source, temporary)
-            temporary.replace(target)
+            _replace_with_retry(temporary, target)
         finally:
             temporary.unlink(missing_ok=True)
         marker.write_text(signature, encoding="utf-8")
 
     return DemoDatabaseSelection(configured_db_path, True)
+
+
+def _replace_with_retry(source: Path, target: Path, attempts: int = 5) -> None:
+    """Atomically replace *target* with *source*, retrying on Windows file locks."""
+    for attempt in range(attempts):
+        try:
+            source.replace(target)
+            return
+        except PermissionError:
+            if attempt + 1 >= attempts:
+                raise
+            time.sleep(0.05 * (2**attempt))
 
 
 def fallback_database_path(configured_db_path: Path) -> Path:

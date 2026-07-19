@@ -51,9 +51,7 @@ def test_transient_server_error_is_retried() -> None:
             return httpx.Response(502, json={"message": "temporary"})
         return httpx.Response(200, json={"full_name": "owner/repo"})
 
-    with GitHubClient(
-        transport=httpx.MockTransport(handler), retry_backoff=0
-    ) as client:
+    with GitHubClient(transport=httpx.MockTransport(handler), retry_backoff=0) as client:
         repository = client.get_repository("owner/repo")
 
     assert repository["full_name"] == "owner/repo"
@@ -67,9 +65,7 @@ def test_pagination_limit_records_conservative_coverage() -> None:
             json=[{"number": number, "title": "issue"} for number in range(100)],
         )
 
-    with GitHubClient(
-        max_pages=1, transport=httpx.MockTransport(handler)
-    ) as client:
+    with GitHubClient(max_pages=1, transport=httpx.MockTransport(handler)) as client:
         issues = client.get_issues("owner/repo")
         stats = client.pagination_stats["issues"]
 

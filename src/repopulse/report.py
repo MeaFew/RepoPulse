@@ -56,10 +56,13 @@ class Report:
 
     def to_html(self) -> str:
         findings = "".join(f"<li>{f}</li>" for f in self.findings) or "<li>数据不足</li>"
-        risks = "".join(
-            f'<li class="risk-{flag.level}"><strong>{flag.title}</strong>：{flag.detail}</li>'
-            for flag in self.risks
-        ) or "<li>未触发风险阈值</li>"
+        risks = (
+            "".join(
+                f'<li class="risk-{flag.level}"><strong>{flag.title}</strong>：{flag.detail}</li>'
+                for flag in self.risks
+            )
+            or "<li>未触发风险阈值</li>"
+        )
         recs = "".join(f"<li>{r}</li>" for r in self.recommendations) or "<li>保持现状</li>"
         metrics_rows = "".join(
             f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in self.metrics.items()

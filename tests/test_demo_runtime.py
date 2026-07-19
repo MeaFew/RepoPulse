@@ -31,9 +31,7 @@ def test_missing_snapshot_keeps_configured_database(tmp_path) -> None:
     assert fallback_database_path(runtime) == tmp_path / "runtime-fallback.duckdb"
 
 
-def test_concurrent_snapshot_copies_use_isolated_temporary_files(
-    tmp_path, monkeypatch
-) -> None:
+def test_concurrent_snapshot_copies_use_isolated_temporary_files(tmp_path, monkeypatch) -> None:
     snapshot = tmp_path / "snapshot.duckdb"
     runtime = tmp_path / "runtime.duckdb"
     load_demo_data(snapshot)
@@ -48,9 +46,7 @@ def test_concurrent_snapshot_copies_use_isolated_temporary_files(
     monkeypatch.setattr(demo_runtime, "copy2", synchronized_copy)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        selections = list(
-            executor.map(lambda _: select_demo_database(runtime, snapshot), range(2))
-        )
+        selections = list(executor.map(lambda _: select_demo_database(runtime, snapshot), range(2)))
 
     assert all(selection.uses_snapshot for selection in selections)
     assert not list(tmp_path.glob("*.copying"))

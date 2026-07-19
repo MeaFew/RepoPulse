@@ -8,7 +8,7 @@ from typing import Any
 import duckdb
 import pandas as pd
 
-_ENTITY_LABELS = {
+ENTITY_LABELS = {
     "issues": "Issue",
     "pull_requests": "Pull Request",
     "commits": "Commit",
@@ -190,15 +190,17 @@ class Analytics:
             FROM counts
             """,
             [
-                repository, start, end,
-                repository, start, end,
+                repository,
+                start,
+                end,
+                repository,
+                start,
+                end,
                 active_window_end,
             ],
         )
 
-    def monthly_activity(
-        self, repository: str, window: Window | None = None
-    ) -> pd.DataFrame:
+    def monthly_activity(self, repository: str, window: Window | None = None) -> pd.DataFrame:
         window = window or Window.all()
         start, end = window.bounds()
         return self.connection.execute(
@@ -219,9 +221,15 @@ class Analytics:
             ORDER BY month, activity_type
             """,
             [
-                repository, start, end,
-                repository, start, end,
-                repository, start, end,
+                repository,
+                start,
+                end,
+                repository,
+                start,
+                end,
+                repository,
+                start,
+                end,
             ],
         ).df()
 
@@ -252,15 +260,17 @@ class Analytics:
             LIMIT ?
             """,
             [
-                repository, start, end,
-                repository, start, end,
+                repository,
+                start,
+                end,
+                repository,
+                start,
+                end,
                 limit,
             ],
         ).df()
 
-    def contributor_retention(
-        self, repository: str, window: Window | None = None
-    ) -> pd.DataFrame:
+    def contributor_retention(self, repository: str, window: Window | None = None) -> pd.DataFrame:
         window = window or Window.all()
         start, end = window.bounds()
         return self.connection.execute(
@@ -300,8 +310,12 @@ class Analytics:
             ORDER BY c.cohort_month, c.month_number
             """,
             [
-                repository, start, end,
-                repository, start, end,
+                repository,
+                start,
+                end,
+                repository,
+                start,
+                end,
             ],
         ).df()
 
@@ -363,7 +377,7 @@ class Analytics:
         else:
             incomplete = coverage.loc[~coverage["history_complete"], "entity_type"].tolist()
             if incomplete:
-                labels = "、".join(_ENTITY_LABELS.get(item, item) for item in incomplete)
+                labels = "、".join(ENTITY_LABELS.get(item, item) for item in incomplete)
                 flags.append(
                     RiskFlag(
                         "medium",
@@ -513,20 +527,34 @@ class Analytics:
             """,
             [
                 repository,
-                end, end, end, end, end, end, end,
-                repository, end, end, end,
+                end,
+                end,
+                end,
+                end,
+                end,
+                end,
+                end,
                 repository,
-                end, end, end, end, end,
-                repository, end, end, end,
+                end,
+                end,
+                end,
+                repository,
+                end,
+                end,
+                end,
+                end,
+                end,
+                repository,
+                end,
+                end,
+                end,
                 limit,
             ],
         ).df()
 
     # --- Maintenance-efficiency metrics (events layer) ----------------------
 
-    def issue_response_kpis(
-        self, repository: str, window: Window | None = None
-    ) -> dict[str, Any]:
+    def issue_response_kpis(self, repository: str, window: Window | None = None) -> dict[str, Any]:
         """Time-to-first-response on issues, using the issue_comments events table.
 
         Excludes the issue author replying to themselves and well-known bots, so
@@ -573,15 +601,10 @@ class Analytics:
             FROM responded r
             JOIN issues i ON i.repo_full_name = ? AND i.issue_number = r.issue_number
             """,
-            [repository, start, end,
-             repository, start, end,
-             repository, start, end,
-             repository],
+            [repository, start, end, repository, start, end, repository, start, end, repository],
         )
 
-    def pr_response_kpis(
-        self, repository: str, window: Window | None = None
-    ) -> dict[str, Any]:
+    def pr_response_kpis(self, repository: str, window: Window | None = None) -> dict[str, Any]:
         """Time-to-first-review on PRs, using the pr_reviews events table.
 
         A "review" is any non-author review event (approved, commented, or
@@ -628,15 +651,10 @@ class Analytics:
             FROM reviewed r
             JOIN pull_requests p ON p.repo_full_name = ? AND p.pr_number = r.pr_number
             """,
-            [repository, start, end,
-             repository, start, end,
-             repository, start, end,
-             repository],
+            [repository, start, end, repository, start, end, repository, start, end, repository],
         )
 
-    def backlog_kpis(
-        self, repository: str, window: Window | None = None
-    ) -> dict[str, Any]:
+    def backlog_kpis(self, repository: str, window: Window | None = None) -> dict[str, Any]:
         """30/90-day backlog ratios for both issues and PRs.
 
         Backlog is judged against the window end (default now), so picking a
@@ -682,15 +700,13 @@ class Analytics:
             "open_issues": open_issues,
             "issue_stale_30": issue.get("issue_stale_30") or 0,
             "issue_stale_90": issue_stale_90,
-            "issue_backlog_90_pct": round(
-                100.0 * issue_stale_90 / open_issues, 1
-            ) if open_issues else None,
+            "issue_backlog_90_pct": round(100.0 * issue_stale_90 / open_issues, 1)
+            if open_issues
+            else None,
             "open_prs": open_prs,
             "pr_stale_30": pr.get("pr_stale_30") or 0,
             "pr_stale_90": pr_stale_90,
-            "pr_backlog_90_pct": round(
-                100.0 * pr_stale_90 / open_prs, 1
-            ) if open_prs else None,
+            "pr_backlog_90_pct": round(100.0 * pr_stale_90 / open_prs, 1) if open_prs else None,
         }
 
     def comparison_kpis(

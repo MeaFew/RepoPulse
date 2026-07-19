@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from email.utils import parsedate_to_datetime
 from time import sleep
 from typing import Any
 
 import httpx
+
+from repopulse._timeutils import ensure_utc, to_iso_z
 
 
 class GitHubAPIError(RuntimeError):
@@ -45,7 +47,7 @@ class GitHubClient:
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "RepoPulse/0.1",
+            "User-Agent": "RepoPulse/0.2",
         }
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -165,7 +167,7 @@ class GitHubClient:
             coverage_key="pull_requests",
         ):
             updated_at = _parse_timestamp(item.get("updated_at"))
-            if since and updated_at and updated_at < _ensure_utc(since):
+            if since and updated_at and updated_at < ensure_utc(since):
                 break
             items.append(item)
         return items
@@ -177,15 +179,11 @@ class GitHubClient:
         if since:
             params["since"] = _github_timestamp(since)
         return list(
-            self._paginate(
-                f"/repos/{repository}/commits", params=params, coverage_key="commits"
-            )
+            self._paginate(f"/repos/{repository}/commits", params=params, coverage_key="commits")
         )
 
     def get_releases(self, repository: str) -> list[dict[str, Any]]:
-        return list(
-            self._paginate(f"/repos/{repository}/releases", coverage_key="releases")
-        )
+        return list(self._paginate(f"/repos/{repository}/releases", coverage_key="releases"))
 
     def get_issue_comments(
         self, repository: str, *, since: datetime | None = None
@@ -211,9 +209,7 @@ class GitHubClient:
             comments.append({**item, "issue_number": number})
         return comments
 
-    def get_pr_reviews(
-        self, repository: str, pr_number: int
-    ) -> list[dict[str, Any]]:
+    def get_pr_reviews(self, repository: str, pr_number: int) -> list[dict[str, Any]]:
         """Reviews for a single PR. There is no repository-level reviews endpoint,
         so callers must loop PRs themselves; that loop is intentionally kept in
         the pipeline so it can apply a window-bounded strategy.
@@ -237,14 +233,8 @@ class GitHubClient:
         return self._get("/rate_limit").json()
 
 
-def _ensure_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
-
-
 def _github_timestamp(value: datetime) -> str:
-    return _ensure_utc(value).isoformat().replace("+00:00", "Z")
+    return to_iso_z(value)
 
 
 def _parse_timestamp(value: str | None) -> datetime | None:
@@ -254,7 +244,7 @@ def _parse_timestamp(value: str | None) -> datetime | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         parsed = parsedate_to_datetime(value)
-    return _ensure_utc(parsed)
+    return ensure_utc(parsed)
 
 
 def _issue_number_from_url(url: str) -> int | None:
