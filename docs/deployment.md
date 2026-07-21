@@ -19,7 +19,7 @@ REPOPULSE_SNAPSHOT_PATH = "data/snapshot/repopulse.duckdb"
 REPOPULSE_MAX_PAGES = "3"
 ```
 
-根目录的 `requirements.txt` 用于云端安装运行依赖。
+根目录的 `requirements.txt` 用于云端安装运行依赖；Docker 镜像与 CI 改用 uv 生成的 `requirements.lock` / `requirements-dev.lock` 锁定版本。
 
 ## 数据快照
 

@@ -31,3 +31,10 @@ def test_settings_reads_cloud_demo_mode(monkeypatch, tmp_path) -> None:
     assert settings.snapshot_path == snapshot_path
     assert settings.demo_mode is True
     assert settings.max_pages == 3
+
+
+def test_settings_rejects_non_numeric_max_pages(monkeypatch) -> None:
+    monkeypatch.setenv("REPOPULSE_MAX_PAGES", "abc")
+
+    with pytest.raises(ValueError, match="REPOPULSE_MAX_PAGES 必须是整数"):
+        Settings.from_env()

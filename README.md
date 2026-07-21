@@ -81,7 +81,7 @@ repopulse collect duckdb/duckdb --max-pages 10
 repopulse summary duckdb/duckdb
 ```
 
-Token 只通过请求头发送给 GitHub，不会写入数据库或应用日志。`--max-pages` 用于限制单次采集成本；对大型仓库，首次运行可能只覆盖最近的数据。
+Token 只通过请求头发送给 GitHub，不会写入数据库或应用日志。`repopulse collect` 仍接受 `--token` 参数，但它会把密钥留在 shell 历史中，使用时会打印警告，建议优先使用 `GITHUB_TOKEN` 环境变量。`--max-pages` 用于限制单次采集成本；对大型仓库，首次运行可能只覆盖最近的数据。
 
 ## Docker
 
@@ -90,7 +90,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Windows PowerShell 可使用 `Copy-Item .env.example .env`。Docker Compose 会从 `.env` 读取默认仓库、最大采集页数、演示模式和 GitHub Token；容器内数据库固定保存在命名 volume 中。`.env` 里的数据库路径供本地运行使用。
+Windows PowerShell 可使用 `Copy-Item .env.example .env`。Docker Compose 会从 `.env` 读取默认仓库、最大采集页数、演示模式和 GitHub Token；容器内数据库固定保存在命名 volume 中。`.env` 里的数据库路径供本地运行使用。镜像使用 `requirements.lock` 锁定的依赖版本构建，并以非 root 用户 `appuser` 运行。
 
 应用启动后访问 `http://localhost:8501`。停止服务使用 `docker compose down`；除非明确要删除已有分析数据，不要附加 `-v`。
 
@@ -155,6 +155,15 @@ python -m pip install -e ".[dev]"
 ruff check .
 pytest --cov=repopulse --cov-report=term-missing
 ```
+
+依赖版本由 lock 文件锁定：`requirements.lock` 是运行时依赖（Docker 镜像使用），`requirements-dev.lock` 额外包含开发依赖（CI 使用），两者都由 uv 生成。升级依赖后重新生成：
+
+```bash
+uv pip compile pyproject.toml --python-version 3.12 -o requirements.lock
+uv pip compile pyproject.toml --extra dev --python-version 3.12 -o requirements-dev.lock
+```
+
+`requirements.txt` 保留给 Streamlit Community Cloud 安装运行依赖。
 
 自动化流程：
 

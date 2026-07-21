@@ -8,6 +8,7 @@ emailed from a scheduled job without extra dependencies.
 
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -55,21 +56,30 @@ class Report:
         return "\n".join(lines)
 
     def to_html(self) -> str:
-        findings = "".join(f"<li>{f}</li>" for f in self.findings) or "<li>数据不足</li>"
+        # Findings/risks/metrics text can originate from GitHub API responses,
+        # so every interpolated value is escaped to keep the report inert HTML.
+        findings = (
+            "".join(f"<li>{html.escape(f)}</li>" for f in self.findings) or "<li>数据不足</li>"
+        )
         risks = (
             "".join(
-                f'<li class="risk-{flag.level}"><strong>{flag.title}</strong>：{flag.detail}</li>'
+                f'<li class="risk-{html.escape(flag.level)}">'
+                f"<strong>{html.escape(flag.title)}</strong>：{html.escape(flag.detail)}</li>"
                 for flag in self.risks
             )
             or "<li>未触发风险阈值</li>"
         )
-        recs = "".join(f"<li>{r}</li>" for r in self.recommendations) or "<li>保持现状</li>"
+        recs = "".join(
+            f"<li>{html.escape(r)}</li>" for r in self.recommendations
+        ) or "<li>保持现状</li>"
         metrics_rows = "".join(
-            f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in self.metrics.items()
+            f"<tr><td>{html.escape(str(k))}</td><td>{html.escape(str(v))}</td></tr>"
+            for k, v in self.metrics.items()
         )
+        repository = html.escape(self.repository)
         return f"""<!doctype html>
 <html lang="zh"><head><meta charset="utf-8">
-<title>RepoPulse 报告 · {self.repository}</title>
+<title>RepoPulse 报告 · {repository}</title>
 <style>
   body {{ font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
          margin: 2rem auto; max-width: 760px; color: #1f2328; line-height: 1.6; }}
@@ -82,7 +92,7 @@ class Report:
   td, th {{ border: 1px solid #d0d7de; padding: 0.4rem 0.6rem; text-align: left; }}
   th {{ background: #f6f8fa; }}
 </style></head><body>
-<h1>RepoPulse 分析报告 · {self.repository}</h1>
+<h1>RepoPulse 分析报告 · {repository}</h1>
 <div class="meta">生成时间：{self.generated_at:%Y-%m-%d %H:%M UTC}{_window_label(self.window)}</div>
 <h2>主要发现</h2><ul>{findings}</ul>
 <h2>风险</h2><ul>{risks}</ul>

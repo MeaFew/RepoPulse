@@ -30,12 +30,19 @@ class Settings:
             if raw_snapshot_path.is_absolute()
             else PROJECT_ROOT / raw_snapshot_path
         )
+        raw_max_pages = os.getenv("REPOPULSE_MAX_PAGES", "10")
+        try:
+            max_pages = int(raw_max_pages)
+        except ValueError:
+            raise ValueError(
+                f"REPOPULSE_MAX_PAGES 必须是整数，当前值为 {raw_max_pages!r}"
+            ) from None
         return cls(
             repository=os.getenv("REPOPULSE_REPOSITORY", "duckdb/duckdb"),
             db_path=db_path,
             snapshot_path=snapshot_path,
             github_token=os.getenv("GITHUB_TOKEN") or None,
-            max_pages=max(1, int(os.getenv("REPOPULSE_MAX_PAGES", "10"))),
+            max_pages=max(1, max_pages),
             demo_mode=os.getenv("REPOPULSE_DEMO_MODE", "false").strip().lower()
             in {"1", "true", "yes", "on"},
         )

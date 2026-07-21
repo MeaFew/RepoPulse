@@ -18,6 +18,16 @@ ENTITY_LABELS = {
 }
 
 
+def _not_bot_author(column: str) -> str:
+    """SQL predicate excluding well-known bot accounts from an author column."""
+    return (
+        f"NOT (starts_with({column}, 'dependabot')"
+        f" OR starts_with({column}, 'github-actions')"
+        f" OR ends_with({column}, '[bot]')"
+        f" OR {column} = 'codecov')"
+    )
+
+
 @dataclass(frozen=True)
 class RiskFlag:
     level: str
@@ -428,7 +438,7 @@ class Analytics:
         """Prioritized, directly actionable open Issue and PR follow-ups."""
         end = (window or Window.all()).with_end_now().end
         return self.connection.execute(
-            """
+            f"""
             WITH issue_responses AS (
                 SELECT DISTINCT i.issue_number
                 FROM issues i
@@ -437,10 +447,7 @@ class Analytics:
                  AND c.issue_number = i.issue_number
                 WHERE i.repo_full_name = ?
                   AND c.author <> i.author
-                  AND NOT (starts_with(c.author, 'dependabot')
-                        OR starts_with(c.author, 'github-actions')
-                        OR ends_with(c.author, '[bot]')
-                        OR c.author = 'codecov')
+                  AND {_not_bot_author('c.author')}
             ), issue_tasks AS (
                 SELECT
                     CASE
@@ -481,10 +488,7 @@ class Analytics:
                   ON r.repo_full_name = p.repo_full_name AND r.pr_number = p.pr_number
                 WHERE p.repo_full_name = ?
                   AND r.author <> p.author
-                  AND NOT (starts_with(r.author, 'dependabot')
-                        OR starts_with(r.author, 'github-actions')
-                        OR ends_with(r.author, '[bot]')
-                        OR r.author = 'codecov')
+                  AND {_not_bot_author('r.author')}
             ), pr_tasks AS (
                 SELECT
                     CASE
@@ -562,46 +566,18 @@ class Analytics:
         qualifying response are reported separately via ``no_response`` and are
         intentionally kept out of the median (using 0 would drag it down).
         """
-        window = window or Window.all()
-        start, end = window.bounds()
-        return self._one(
-            """
-            WITH responded AS (
-                SELECT
-                    i.issue_number,
-                    i.author AS issue_author,
-                    min(ic.created_at) AS first_response_at
-                FROM issues i
-                JOIN issue_comments ic
-                  ON ic.repo_full_name = i.repo_full_name AND ic.issue_number = i.issue_number
-                WHERE i.repo_full_name = ?
-                  AND i.created_at >= ? AND i.created_at < ?
-                  AND ic.author <> i.author
-                  AND NOT (starts_with(ic.author, 'dependabot')
-                        OR starts_with(ic.author, 'github-actions')
-                        OR ends_with(ic.author, '[bot]')
-                        OR ic.author = 'codecov')
-                GROUP BY i.issue_number, i.author
-            )
-            SELECT
-                count(*) AS responded_issues,
-                coalesce(round(
-                    median(
-                        date_diff('minute', i.created_at, r.first_response_at) / 60.0),
-                    1), NULL) AS median_first_response_hours,
-                coalesce(round(
-                    quantile_cont(
-                        date_diff('minute', i.created_at, r.first_response_at) / 60.0, 0.9),
-                    1), NULL) AS p90_first_response_hours,
-                (SELECT count(*) FROM issues
-                   WHERE repo_full_name = ? AND created_at >= ? AND created_at < ?) AS total_issues,
-                ((SELECT count(*) FROM issues
-                   WHERE repo_full_name = ? AND created_at >= ? AND created_at < ?)
-                 - coalesce((SELECT count(*) FROM responded), 0)) AS no_response
-            FROM responded r
-            JOIN issues i ON i.repo_full_name = ? AND i.issue_number = r.issue_number
-            """,
-            [repository, start, end, repository, start, end, repository, start, end, repository],
+        return self._first_response_kpis(
+            repository,
+            window,
+            item_table="issues",
+            event_table="issue_comments",
+            number_column="issue_number",
+            event_time_column="created_at",
+            count_label="responded_issues",
+            median_label="median_first_response_hours",
+            p90_label="p90_first_response_hours",
+            total_label="total_issues",
+            missing_label="no_response",
         )
 
     def pr_response_kpis(self, repository: str, window: Window | None = None) -> dict[str, Any]:
@@ -612,44 +588,79 @@ class Analytics:
         events table only stores formal reviews; that keeps the metric
         comparable across projects.
         """
+        return self._first_response_kpis(
+            repository,
+            window,
+            item_table="pull_requests",
+            event_table="pr_reviews",
+            number_column="pr_number",
+            event_time_column="submitted_at",
+            count_label="reviewed_prs",
+            median_label="median_first_review_hours",
+            p90_label="p90_first_review_hours",
+            total_label="total_prs",
+            missing_label="no_review",
+        )
+
+    def _first_response_kpis(
+        self,
+        repository: str,
+        window: Window | None,
+        *,
+        item_table: str,
+        event_table: str,
+        number_column: str,
+        event_time_column: str,
+        count_label: str,
+        median_label: str,
+        p90_label: str,
+        total_label: str,
+        missing_label: str,
+    ) -> dict[str, Any]:
+        """Shared SQL for first-response-style KPIs on an item/event table pair.
+
+        Table/column names are interpolated because SQL cannot bind identifiers;
+        every caller above passes hard-coded constants, and all values remain
+        bound parameters.
+        """
         window = window or Window.all()
         start, end = window.bounds()
         return self._one(
-            """
-            WITH reviewed AS (
+            f"""
+            WITH responded AS (
                 SELECT
-                    p.pr_number,
-                    p.author AS pr_author,
-                    min(pr.submitted_at) AS first_review_at
-                FROM pull_requests p
-                JOIN pr_reviews pr
-                  ON pr.repo_full_name = p.repo_full_name AND pr.pr_number = p.pr_number
-                WHERE p.repo_full_name = ?
-                  AND p.created_at >= ? AND p.created_at < ?
-                  AND pr.author <> p.author
-                  AND NOT (starts_with(pr.author, 'dependabot')
-                        OR starts_with(pr.author, 'github-actions')
-                        OR ends_with(pr.author, '[bot]')
-                        OR pr.author = 'codecov')
-                GROUP BY p.pr_number, p.author
+                    i.{number_column},
+                    i.author AS item_author,
+                    min(e.{event_time_column}) AS first_response_at
+                FROM {item_table} i
+                JOIN {event_table} e
+                  ON e.repo_full_name = i.repo_full_name
+                 AND e.{number_column} = i.{number_column}
+                WHERE i.repo_full_name = ?
+                  AND i.created_at >= ? AND i.created_at < ?
+                  AND e.author <> i.author
+                  AND {_not_bot_author('e.author')}
+                GROUP BY i.{number_column}, i.author
             )
             SELECT
-                count(*) AS reviewed_prs,
+                count(*) AS {count_label},
                 coalesce(round(
                     median(
-                        date_diff('minute', p.created_at, r.first_review_at) / 60.0),
-                    1), NULL) AS median_first_review_hours,
+                        date_diff('minute', i.created_at, r.first_response_at) / 60.0),
+                    1), NULL) AS {median_label},
                 coalesce(round(
                     quantile_cont(
-                        date_diff('minute', p.created_at, r.first_review_at) / 60.0, 0.9),
-                    1), NULL) AS p90_first_review_hours,
-                (SELECT count(*) FROM pull_requests
-                   WHERE repo_full_name = ? AND created_at >= ? AND created_at < ?) AS total_prs,
-                ((SELECT count(*) FROM pull_requests
+                        date_diff('minute', i.created_at, r.first_response_at) / 60.0, 0.9),
+                    1), NULL) AS {p90_label},
+                (SELECT count(*) FROM {item_table}
                    WHERE repo_full_name = ? AND created_at >= ? AND created_at < ?)
-                 - coalesce((SELECT count(*) FROM reviewed), 0)) AS no_review
-            FROM reviewed r
-            JOIN pull_requests p ON p.repo_full_name = ? AND p.pr_number = r.pr_number
+                   AS {total_label},
+                ((SELECT count(*) FROM {item_table}
+                   WHERE repo_full_name = ? AND created_at >= ? AND created_at < ?)
+                 - coalesce((SELECT count(*) FROM responded), 0)) AS {missing_label}
+            FROM responded r
+            JOIN {item_table} i
+              ON i.repo_full_name = ? AND i.{number_column} = r.{number_column}
             """,
             [repository, start, end, repository, start, end, repository, start, end, repository],
         )
@@ -774,7 +785,7 @@ class Analytics:
         merge_rate = pr.get("merge_rate")
         if merge_rate is not None and merge_rate < 40:
             flags.append(
-                RiskFlag("medium", "PR 合并率偏低", f"当前非草稿 PR 合并率为 {merge_rate:.1f}% 。")
+                RiskFlag("medium", "PR 合并率偏低", f"当前非草稿 PR 合并率为 {merge_rate:.1f}%。")
             )
 
         if not flags:

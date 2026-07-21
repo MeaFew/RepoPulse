@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import asdict
 from pathlib import Path
 
@@ -21,7 +22,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     collect = subparsers.add_parser("collect", help="Collect or refresh a GitHub repository")
     collect.add_argument("repository", nargs="?", default=settings.repository)
-    collect.add_argument("--token", default=settings.github_token)
+    collect.add_argument(
+        "--token",
+        default=None,
+        help="GitHub Token（不推荐：参数值会留在 shell 历史中，请优先使用 GITHUB_TOKEN 环境变量）",
+    )
     collect.add_argument("--max-pages", type=int, default=settings.max_pages)
 
     subparsers.add_parser("demo", help="Load deterministic offline demo data")
@@ -34,10 +39,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "collect":
+        if args.token is not None:
+            print(
+                "警告：--token 会把密钥留在 shell 历史中，建议改用 GITHUB_TOKEN 环境变量。",
+                file=sys.stderr,
+            )
+        token = args.token if args.token is not None else Settings.from_env().github_token
         result = collect_repository(
             args.repository,
             args.db,
-            token=args.token,
+            token=token,
             max_pages=max(1, args.max_pages),
         )
         print(
