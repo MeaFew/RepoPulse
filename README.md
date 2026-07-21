@@ -1,3 +1,5 @@
+**English** | [中文](README.zh-CN.md)
+
 # RepoPulse
 
 [![CI](https://github.com/MeaFew/RepoPulse/actions/workflows/ci.yml/badge.svg)](https://github.com/MeaFew/RepoPulse/actions/workflows/ci.yml)
@@ -5,35 +7,35 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Online Demo](https://img.shields.io/badge/Online-Demo-FF4B4B?logo=streamlit&logoColor=white)](https://repopulse-c7wefwy6hywnphnavs8rme.streamlit.app/)
 
-> 面向开源维护者的 GitHub 仓库健康度、维护效率与贡献者分析工具。
+> GitHub repository health, maintenance efficiency, and contributor analytics for open-source maintainers.
 
-RepoPulse 通过 GitHub REST API 增量采集 Issue、Pull Request、Commit、Release 等公开活动，将明细数据写入 DuckDB，并用统一 SQL 指标驱动 Streamlit 交互式看板。它关注的不只是图表，还包括可解释的指标口径、数据质量、自动化采集和可复现交付。
+RepoPulse incrementally collects public activity — issues, pull requests, commits, and releases — through the GitHub REST API, writes the detail records into DuckDB, and drives an interactive Streamlit dashboard from a unified set of SQL metrics. It cares about more than charts: interpretable metric definitions, data quality, automated collection, and reproducible delivery.
 
-[在线体验](https://repopulse-c7wefwy6hywnphnavs8rme.streamlit.app/) · [快速开始](#快速开始) · [指标字典](docs/metric_dictionary.md) · [架构说明](docs/architecture.md) · [部署指南](docs/deployment.md) · [更新日志](CHANGELOG.md)
+[Live Demo](https://repopulse-c7wefwy6hywnphnavs8rme.streamlit.app/) · [Quick Start](#quick-start) · [Metric Dictionary](docs/metric_dictionary.md) · [Architecture](docs/architecture.md) · [Deployment Guide](docs/deployment.md) · [Changelog](CHANGELOG.md)
 
 > [!NOTE]
-> 在线 Demo 是安全只读模式，默认展示每日更新的 `duckdb/duckdb`、`pola-rs/polars` 和 `tobymao/sqlglot` 真实仓库快照，不支持访客临时采集任意仓库。若快照不可用，页面会明确标注并回退到模拟数据。Streamlit Community Cloud 长时间无人访问时会休眠，首次打开可能需要手动唤醒并等待片刻。
+> The online demo runs in a safe read-only mode. By default it shows daily-refreshed snapshots of the real repositories `duckdb/duckdb`, `pola-rs/polars`, and `tobymao/sqlglot`; visitors cannot collect arbitrary repositories on demand. If a snapshot is unavailable, the page says so explicitly and falls back to mock data. Streamlit Community Cloud hibernates after long periods without traffic, so the first visit may require waking the app and waiting a moment.
 
-![RepoPulse 单仓库分析看板](docs/assets/dashboard-overview.png)
+![RepoPulse single-repository analytics dashboard](docs/assets/dashboard-overview.png)
 
-## 核心能力
+## Core Capabilities
 
-| 能力 | 可以回答的问题 |
+| Capability | Questions it answers |
 | --- | --- |
-| 活跃度趋势 | Issue、PR、Commit 和 Release 活跃度如何变化？ |
-| 维护效率 | 首次响应、首次 Review、关闭与合并耗时的 P50/P90 是多少？ |
-| 社区健康 | 新贡献者留存如何？项目是否依赖少数核心贡献者？ |
-| 风险诊断 | 30/90 天积压、无响应 Issue、未合并 PR 等风险是否在上升？ |
-| 横向对比 | 多个同类仓库中，谁的响应更快、积压更少、贡献更分散？ |
-| 报告导出 | 一键生成包含主要发现、风险与建议的 HTML/CSV 报告。 |
-| 数据可信度 | 当前数据是否新鲜、达到分页上限、覆盖完整历史？ |
-| 维护者待办 | 哪些陈旧 Issue、无人响应项和等待 Review 的 PR 应优先处理？ |
+| Activity trends | How do issue, PR, commit, and release activity change over time? |
+| Maintenance efficiency | What are the P50/P90 of time to first response, first review, close, and merge? |
+| Community health | How well are new contributors retained? Does the project depend on a few core contributors? |
+| Risk diagnosis | Are 30/90-day backlogs, unanswered issues, and unmerged PRs trending up? |
+| Cross-repo comparison | Among similar repositories, which one responds faster, carries less backlog, and spreads contributions wider? |
+| Report export | Generate an HTML/CSV report with key findings, risks, and recommendations in one click. |
+| Data trustworthiness | Is the current data fresh, hitting pagination limits, and covering the full history? |
+| Maintainer to-do | Which stale issues, unanswered items, and PRs awaiting review should be handled first? |
 
-所有核心指标支持 30/90/180 天和自定义日期范围联动筛选。
+All core metrics support linked filtering by 30/90/180-day and custom date ranges.
 
-## 快速开始
+## Quick Start
 
-需要 Python 3.11 或更高版本。
+Requires Python 3.11 or later.
 
 ```bash
 git clone https://github.com/MeaFew/RepoPulse.git
@@ -41,7 +43,7 @@ cd RepoPulse
 python -m venv .venv
 ```
 
-激活虚拟环境：
+Activate the virtual environment:
 
 ```powershell
 # Windows PowerShell
@@ -53,7 +55,7 @@ python -m venv .venv
 source .venv/bin/activate
 ```
 
-安装并加载无需网络的确定性示例数据：
+Install the package and load the deterministic, offline sample data:
 
 ```bash
 python -m pip install -e .
@@ -61,11 +63,11 @@ repopulse demo
 python -m streamlit run app.py
 ```
 
-浏览器访问 `http://localhost:8501`。
+Open `http://localhost:8501` in your browser.
 
-### 分析真实仓库
+### Analyzing a Real Repository
 
-公开仓库可以匿名采集；建议配置 `GITHUB_TOKEN`，以获得更高的 GitHub API 限额。
+Public repositories can be collected anonymously; setting `GITHUB_TOKEN` is recommended for a higher GitHub API rate limit.
 
 ```powershell
 # Windows PowerShell
@@ -81,7 +83,7 @@ repopulse collect duckdb/duckdb --max-pages 10
 repopulse summary duckdb/duckdb
 ```
 
-Token 只通过请求头发送给 GitHub，不会写入数据库或应用日志。`repopulse collect` 仍接受 `--token` 参数，但它会把密钥留在 shell 历史中，使用时会打印警告，建议优先使用 `GITHUB_TOKEN` 环境变量。`--max-pages` 用于限制单次采集成本；对大型仓库，首次运行可能只覆盖最近的数据。
+The token is sent to GitHub only in request headers and is never written to the database or application logs. `repopulse collect` still accepts a `--token` argument, but it leaves the secret in your shell history and prints a warning when used, so prefer the `GITHUB_TOKEN` environment variable. `--max-pages` caps the cost of a single collection run; for large repositories, the first run may cover only recent data.
 
 ## Docker
 
@@ -90,65 +92,65 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Windows PowerShell 可使用 `Copy-Item .env.example .env`。Docker Compose 会从 `.env` 读取默认仓库、最大采集页数、演示模式和 GitHub Token；容器内数据库固定保存在命名 volume 中。`.env` 里的数据库路径供本地运行使用。镜像使用 `requirements.lock` 锁定的依赖版本构建，并以非 root 用户 `appuser` 运行。
+On Windows PowerShell, use `Copy-Item .env.example .env`. Docker Compose reads the default repository, max collection pages, demo mode, and GitHub token from `.env`; inside the container the database always lives in a named volume. The database path in `.env` is for local runs. The image is built with the dependency versions pinned in `requirements.lock` and runs as the non-root user `appuser`.
 
-应用启动后访问 `http://localhost:8501`。停止服务使用 `docker compose down`；除非明确要删除已有分析数据，不要附加 `-v`。
+Once the app is up, visit `http://localhost:8501`. Stop it with `docker compose down`; do not add `-v` unless you explicitly want to delete existing analytics data.
 
-## 工作原理
+## How It Works
 
 ```mermaid
 flowchart LR
-    A["GitHub REST API"] --> B["Python 增量采集"]
-    B --> C["DuckDB 明细层"]
-    C --> D["统一 SQL 指标层"]
-    D --> E["Streamlit 看板"]
-    D --> F["HTML / CSV 报告"]
+    A["GitHub REST API"] --> B["Incremental collection in Python"]
+    B --> C["DuckDB detail layer"]
+    C --> D["Unified SQL metric layer"]
+    D --> E["Streamlit dashboard"]
+    D --> F["HTML / CSV reports"]
     G["GitHub Actions"] --> B
-    G --> H["测试与质量检查"]
+    G --> H["Tests & quality checks"]
 ```
 
-核心模块保持清晰分层：
+The core modules stay cleanly layered:
 
 ```text
-github_client.py  HTTP、分页、限流与 GitHub API 语义
-storage.py        表结构、自然键和 DuckDB 持久化
-pipeline.py       增量采集编排与运行审计
-metrics.py        可解释、可测试的统一 SQL 指标
-report.py         HTML/CSV 分析报告生成
-app.py            Streamlit 交互与展示
+github_client.py  HTTP, pagination, rate limiting, and GitHub API semantics
+storage.py        Schema, natural keys, and DuckDB persistence
+pipeline.py       Incremental collection orchestration and run auditing
+metrics.py        Interpretable, testable, unified SQL metrics
+report.py         HTML/CSV analytics report generation
+app.py            Streamlit interaction and presentation
 ```
 
-详细设计见[架构说明](docs/architecture.md)。
+See the [architecture doc](docs/architecture.md) for the detailed design.
 
-## 指标口径亮点
+## Metric Definition Highlights
 
-- GitHub Issues 接口返回的 PR 会在采集阶段剔除，避免 Issue 重复计数。
-- 所有明细按自然键幂等更新，重复运行不会重复累加同一记录。
-- 增量采集保留 5 分钟重叠窗口，降低相同时间戳与轻微时钟偏差造成的漏数风险。
-- P50/P90 直接在 DuckDB 中计算，命令行、测试、报告和页面共用同一套逻辑。
-- 首次响应与首次 Review 排除作者自评和 Bot；无响应记录单独统计，不使用 0 拉低分布。
-- PR Review 只回灌最近 180 天内创建的 PR，在数据完整度与 API 成本之间保持可控权衡。
-- 风险提示是透明的规则诊断，不被包装成因果结论或不透明的“健康分”。
+- PRs returned by the GitHub Issues API are filtered out during collection, avoiding double-counted issues.
+- Every detail record is idempotently upserted by natural key, so reruns never accumulate duplicates.
+- Incremental collection keeps a 5-minute overlap window to reduce misses caused by identical timestamps and minor clock skew.
+- P50/P90 are computed directly in DuckDB; the CLI, tests, reports, and dashboard all share the same logic.
+- First response and first review exclude author self-comments and bots; unanswered records are counted separately instead of dragging the distribution down with zeros.
+- PR reviews are backfilled only for PRs created within the last 180 days — a controlled trade-off between data completeness and API cost.
+- Risk signals are transparent, rule-based diagnostics, not packaged as causal conclusions or an opaque "health score".
 
-完整定义、分子分母和适用边界见[指标字典](docs/metric_dictionary.md)。
+Full definitions, numerators and denominators, and applicability boundaries are in the [metric dictionary](docs/metric_dictionary.md).
 
-## 数据表
+## Data Tables
 
-| 表 | 内容 |
+| Table | Contents |
 | --- | --- |
-| `repositories` | 仓库快照 |
-| `issues` / `issue_comments` | Issue 明细与评论事件 |
-| `pull_requests` / `pr_reviews` | PR 明细与 Review 事件 |
-| `commits` / `releases` | Commit 与 Release 明细 |
-| `pipeline_runs` | 采集运行记录 |
+| `repositories` | Repository snapshots |
+| `issues` / `issue_comments` | Issue details and comment events |
+| `pull_requests` / `pr_reviews` | PR details and review events |
+| `commits` / `releases` | Commit and release details |
+| `pipeline_runs` | Collection run records |
 
-## 在线部署
+## Online Deployment
 
-仓库包含每日运行的 `Refresh analytics snapshot` 工作流。它默认采集一组可对比的数据工程项目，将合并后的 DuckDB 快照提交到 `data/snapshot/repopulse.duckdb`，供在线 Demo 只读加载。
+The repository ships with a daily `Refresh analytics snapshot` workflow. By default it collects a set of comparable data-engineering projects and commits the merged DuckDB snapshot to `data/snapshot/repopulse.duckdb`, which the online demo loads read-only.
 
-Streamlit Community Cloud 的 Secrets、快照刷新和本地验证步骤见[部署指南](docs/deployment.md)。
+Streamlit Community Cloud secrets, snapshot refresh, and local verification steps are covered in the [deployment guide](docs/deployment.md).
 
-## 质量检查
+## Quality Checks
 
 ```bash
 python -m pip install -e ".[dev]"
@@ -156,44 +158,44 @@ ruff check .
 pytest --cov=repopulse --cov-report=term-missing
 ```
 
-依赖版本由 lock 文件锁定：`requirements.lock` 是运行时依赖（Docker 镜像使用），`requirements-dev.lock` 额外包含开发依赖（CI 使用），两者都由 uv 生成。升级依赖后重新生成：
+Dependency versions are pinned by lock files: `requirements.lock` holds the runtime dependencies (used by the Docker image), `requirements-dev.lock` additionally includes development dependencies (used by CI), and both are generated by uv. Regenerate them after upgrading dependencies:
 
 ```bash
 uv pip compile pyproject.toml --python-version 3.12 -o requirements.lock
 uv pip compile pyproject.toml --extra dev --python-version 3.12 -o requirements-dev.lock
 ```
 
-`requirements.txt` 保留给 Streamlit Community Cloud 安装运行依赖。
+`requirements.txt` is kept for Streamlit Community Cloud to install runtime dependencies.
 
-自动化流程：
+Automation:
 
-- `CI`：每次 Push 和 Pull Request 执行 Ruff 与 Pytest。
-- `Refresh analytics snapshot`：每天以及手动触发时刷新在线 Demo 数据快照。
+- `CI`: runs Ruff and Pytest on every push and pull request.
+- `Refresh analytics snapshot`: refreshes the online demo's data snapshot daily and on manual dispatch.
 
-## 已知边界
+## Known Boundaries
 
-- `--max-pages` 会限制首轮历史覆盖范围，不能被理解为“全量数据保证”。
-- 180 天以前创建的历史 PR 不回灌 Review，因此其首次 Review 指标不会出现。
-- 贡献者留存基于当前已采集窗口估计，窗口前已经活跃的人可能被误判为新贡献者。
-- 时间窗口作用于记录的 `created_at`；积压指标以窗口结束日为基准计算老化。
-- 指标用于运营诊断；相关性不能直接证明维护行为导致贡献者留存变化。
+- `--max-pages` limits first-run historical coverage and must not be read as a "full data guarantee".
+- Reviews are not backfilled for PRs created more than 180 days ago, so their first-review metrics never appear.
+- Contributor retention is estimated from the currently collected window; people already active before the window may be misclassified as new contributors.
+- The time window applies to each record's `created_at`; backlog metrics measure aging against the window's end date.
+- Metrics are for operational diagnosis; correlation alone cannot prove that maintenance behavior caused changes in contributor retention.
 
 ## Roadmap
 
-- [x] 时间范围筛选与多仓库对比
-- [x] 首次响应、首次 Review 与 30/90 天积压指标
-- [x] 每日快照刷新与云端只读 Demo
-- [x] HTML/CSV 分析报告导出
-- [x] 数据覆盖、新鲜度和分页完整性诊断
-- [x] 陈旧 Issue、无响应项和等待 Review PR 的维护者待办
-- [ ] 新贡献者 PR 漏斗：创建 → Review → 合并
-- [ ] 仓库横向对标和语言/规模分层
-- [ ] 贡献者 30/90 天留存与生存分析
-- [ ] 标签级积压诊断和异常波动提醒
+- [x] Time-range filtering and multi-repository comparison
+- [x] First response, first review, and 30/90-day backlog metrics
+- [x] Daily snapshot refresh and a cloud-hosted read-only demo
+- [x] HTML/CSV analytics report export
+- [x] Data coverage, freshness, and pagination-completeness diagnostics
+- [x] Maintainer to-do for stale issues, unanswered items, and PRs awaiting review
+- [ ] New-contributor PR funnel: create → review → merge
+- [ ] Cross-repository benchmarking with language/size stratification
+- [ ] Contributor 30/90-day retention and survival analysis
+- [ ] Label-level backlog diagnosis and anomaly alerts
 
-## 参与贡献
+## Contributing
 
-欢迎提交指标建议、数据质量案例和可视化改进。开始前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。新增指标应说明它服务的决策、分子分母以及可能产生误导的场景。
+Metric proposals, data-quality cases, and visualization improvements are all welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before you start. A new metric should state the decision it serves, its numerator and denominator, and the scenarios where it could mislead.
 
 ## License
 
