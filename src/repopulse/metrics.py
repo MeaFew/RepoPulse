@@ -8,6 +8,16 @@ from typing import Any
 import duckdb
 import pandas as pd
 
+from repopulse.uncertainty import (
+    DEFAULT_CONFIDENCE,
+    DEFAULT_RESAMPLES,
+    DEFAULT_SEED,
+    BootstrapInterval,
+    median_interval,
+    proportion_interval,
+    top_share_interval,
+)
+
 ENTITY_LABELS = {
     "issues": "Issue",
     "pull_requests": "Pull Request",
@@ -797,6 +807,87 @@ class Analytics:
                 )
             )
         return flags
+
+    # --- Uncertainty: bootstrap confidence intervals -------------------------
+
+    def metric_uncertainty(
+        self,
+        repository: str,
+        window: Window | None = None,
+        *,
+        seed: int | None = DEFAULT_SEED,
+        resamples: int = DEFAULT_RESAMPLES,
+        confidence: float = DEFAULT_CONFIDENCE,
+    ) -> dict[str, BootstrapInterval]:
+        """Point + bootstrap CI for the five headline aggregate metrics.
+
+        Resamples the event-level rows behind each metric (issue states, PR
+        outcomes, close/first-response durations, contributor activity), so
+        the interval width honestly reflects how much data backs the number.
+        Point estimates reproduce the values from the KPI methods above.
+        """
+        window = window or Window.all()
+        start, end = window.bounds()
+        kwargs = {"resamples": resamples, "confidence": confidence, "seed": seed}
+
+        issue_states = self._column(
+            "SELECT state = 'closed' FROM issues "
+            "WHERE repo_full_name = ? AND created_at >= ? AND created_at < ?",
+            [repository, start, end],
+        )
+        pr_outcomes = self._column(
+            "SELECT merged_at IS NOT NULL FROM pull_requests "
+            "WHERE repo_full_name = ? AND created_at >= ? AND created_at < ? "
+            "AND NOT draft AND closed_at IS NOT NULL",
+            [repository, start, end],
+        )
+        close_hours = self._column(
+            "SELECT date_diff('minute', created_at, closed_at) / 60.0 FROM issues "
+            "WHERE repo_full_name = ? AND created_at >= ? AND created_at < ? "
+            "AND closed_at IS NOT NULL",
+            [repository, start, end],
+        )
+        response_hours = self._column(
+            f"""
+            WITH responded AS (
+                SELECT i.issue_number, min(c.created_at) AS first_response_at
+                FROM issues i
+                JOIN issue_comments c
+                  ON c.repo_full_name = i.repo_full_name
+                 AND c.issue_number = i.issue_number
+                WHERE i.repo_full_name = ?
+                  AND i.created_at >= ? AND i.created_at < ?
+                  AND c.author <> i.author
+                  AND {_not_bot_author("c.author")}
+                GROUP BY i.issue_number
+            )
+            SELECT date_diff('minute', i.created_at, r.first_response_at) / 60.0
+            FROM responded r
+            JOIN issues i
+              ON i.repo_full_name = ? AND i.issue_number = r.issue_number
+            """,
+            [repository, start, end, repository],
+        )
+        activity_authors = self._column(
+            "SELECT author FROM commits WHERE repo_full_name = ? AND author IS NOT NULL "
+            "AND committed_at >= ? AND committed_at < ? "
+            "UNION ALL "
+            "SELECT author FROM pull_requests WHERE repo_full_name = ? AND author IS NOT NULL "
+            "AND created_at >= ? AND created_at < ?",
+            [repository, start, end, repository, start, end],
+        )
+
+        return {
+            "issue_close_rate": proportion_interval(issue_states, **kwargs),
+            "issue_median_close_hours": median_interval(close_hours, **kwargs),
+            "issue_median_first_response_hours": median_interval(response_hours, **kwargs),
+            "pr_merge_rate": proportion_interval(pr_outcomes, **kwargs),
+            "top_contributor_share": top_share_interval(activity_authors, **kwargs),
+        }
+
+    def _column(self, sql: str, params: list[Any]) -> list[Any]:
+        """Fetch a single-column result set as a plain list (event-level data)."""
+        return [row[0] for row in self.connection.execute(sql, params).fetchall()]
 
     def _one(self, sql: str, params: list[Any]) -> dict[str, Any]:
         cursor = self.connection.execute(sql, params)

@@ -393,6 +393,35 @@ with mode[0]:
                 "无响应单独计数，不参与中位数计算。"
             )
 
+            with st.expander("📐 指标不确定度（95% bootstrap CI）"):
+                uncertainty = analytics.metric_uncertainty(selected, window)
+                ci_rows = [
+                    ("Issue 关闭率", "issue_close_rate", "%"),
+                    ("Issue 中位关闭时间", "issue_median_close_hours", " 小时"),
+                    ("Issue 首次响应中位", "issue_median_first_response_hours", " 小时"),
+                    ("PR 合并率", "pr_merge_rate", "%"),
+                    ("头部贡献者集中度", "top_contributor_share", "%"),
+                ]
+                ci_table = [
+                    {
+                        "指标": f"{label}（{suffix.strip()}）" if suffix.strip() else label,
+                        "点估计": interval.point,
+                        "CI 下限": interval.lower,
+                        "CI 上限": interval.upper,
+                        "事件数": interval.n,
+                    }
+                    for label, key, suffix in ci_rows
+                    if (interval := uncertainty[key]).point is not None
+                ]
+                if ci_table:
+                    st.dataframe(ci_table, use_container_width=True, hide_index=True)
+                else:
+                    st.info("窗口内事件不足，无法计算置信区间。")
+                st.caption(
+                    "对构成指标的事件级记录做 1000 次有放回重抽样（percentile bootstrap，"
+                    "固定随机种子可复现）。区间越宽说明样本越少、数字越不宜过度解读。"
+                )
+
             st.markdown("#### 积压")
             left, middle, right = st.columns(3)
             left.metric("开放 Issue", metric_value(backlog.get("open_issues")))

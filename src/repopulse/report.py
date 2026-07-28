@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from repopulse.metrics import Analytics, RiskFlag, Window
+from repopulse.uncertainty import BootstrapInterval
 
 
 @dataclass(frozen=True)
@@ -194,6 +195,17 @@ def build_report(
         "维护者待办": len(tasks),
     }
 
+    uncertainty = analytics.metric_uncertainty(repository, window)
+    for key, (label, suffix) in {
+        "issue_close_rate": ("Issue 关闭率", "（%）"),
+        "issue_median_close_hours": ("Issue 中位关闭时间", "（小时）"),
+        "issue_median_first_response_hours": ("Issue 首次响应中位", "（小时）"),
+        "pr_merge_rate": ("PR 合并率", "（%）"),
+        "top_contributor_share": ("头部贡献者集中度", "（%）"),
+    }.items():
+        interval = uncertainty[key]
+        metrics[f"{label} 95% CI{suffix}"] = _ci_label(interval)
+
     return Report(
         repository=repository,
         generated_at=datetime.now(UTC),
@@ -207,6 +219,13 @@ def build_report(
 
 def _level_label(level: str) -> str:
     return {"high": "高", "medium": "中", "good": "良好"}.get(level, level)
+
+
+def _ci_label(interval: BootstrapInterval) -> str:
+    """Render one bootstrap interval as ``point [lower, upper] (n=...)``."""
+    if interval.point is None:
+        return "—（数据不足）"
+    return f"{interval.point} [{interval.lower}, {interval.upper}]（n={interval.n}）"
 
 
 def _window_label(window: Window) -> str:

@@ -116,6 +116,7 @@ github_client.py  HTTP, pagination, rate limiting, and GitHub API semantics
 storage.py        Schema, natural keys, and DuckDB persistence
 pipeline.py       Incremental collection orchestration and run auditing
 metrics.py        Interpretable, testable, unified SQL metrics
+uncertainty.py    Bootstrap confidence intervals for the headline metrics
 report.py         HTML/CSV analytics report generation
 app.py            Streamlit interaction and presentation
 ```
@@ -133,6 +134,24 @@ See the [architecture doc](docs/architecture.md) for the detailed design.
 - Risk signals are transparent, rule-based diagnostics, not packaged as causal conclusions or an opaque "health score".
 
 Full definitions, numerators and denominators, and applicability boundaries are in the [metric dictionary](docs/metric_dictionary.md).
+
+## Uncertainty: Bootstrap Confidence Intervals
+
+A point estimate answers "what is the merge rate" but not "how sure are we" — quoting `72.5%` without an uncertainty range overstates precision, especially on thin windows. RepoPulse therefore attaches a **95% bootstrap confidence interval** to the five headline metrics: the event-level records behind each metric (issue states, PR outcomes, close/first-response durations, contributor activity) are resampled with replacement 1,000 times, the metric is recomputed per resample, and the 2.5th/97.5th percentiles of that distribution form the interval (the classic percentile bootstrap). The seed is fixed, so every interval is exactly reproducible.
+
+Example from the bundled demo data (`Analytics.metric_uncertainty`, also shown in the dashboard and the exported report):
+
+| Metric | Point | 95% CI | Events (n) |
+| --- | --- | --- | --- |
+| Issue close rate | 80.0% | [70.0, 88.8] | 80 |
+| Issue median close time | 713.5 h | [558.0, 833.5] | 64 |
+| Issue median first response | 95.0 h | [74.0, 114.0] | 69 |
+| PR merge rate | 72.5% | [58.8, 84.3] | 51 |
+| Top contributor share | 38.2% | [33.4, 43.2] | 380 |
+
+The implementation lives in `src/repopulse/uncertainty.py` as pure, seed-injectable functions, tested for CI coverage on synthetic data with a known ground truth, for wider intervals on smaller samples, and for seed-level reproducibility.
+
+Honest limits: the bootstrap assumes events are **exchangeable**. Repository activity is time-ordered and autocorrelated (release crunches, maintainer vacations, hackathons), so intervals for metrics built on bursty time series are narrower than the true uncertainty. Treat a narrow CI as "the data is internally consistent", not as a guarantee about next month.
 
 ## Data Tables
 
